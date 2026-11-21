@@ -1,0 +1,10 @@
+# Poll the selected or latest hierarchical outdoor navigation run.
+string run_id
+---
+bool known
+string state
+string place
+float64 remaining_m
+int32 current_segment
+int32 total_segments
+string detail

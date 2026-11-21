@@ -1,0 +1,12 @@
+# Navigate to a named campus POI (or x/y coordinate) using hierarchical global
+# road-graph planning and piecewise rolling-local-map obstacle avoidance.
+
+# POI name/alias/id (e.g. "饭堂", "实验室"). Leave empty to navigate to (x, y).
+string place
+float64 x
+float64 y
+float64 timeout_s
+---
+bool accepted
+string run_id
+string detail

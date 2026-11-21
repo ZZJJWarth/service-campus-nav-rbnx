@@ -1,0 +1,11 @@
+[contract]
+id = "robonix/skill/outdoor_navigation/navigate_to_place"
+version = "1"
+kind = "skill"
+idl = "outdoor_navigation/srv/NavigateToPlace.srv"
+
+[mode]
+type = "rpc"
+
+[semantics]
+user_invocable = true

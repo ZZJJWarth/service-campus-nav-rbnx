@@ -1,0 +1,1185 @@
+{
+  "version": 1,
+  "indoor_id": "a_aa681194__4F",
+  "building_id": "a_aa681194",
+  "building_name": "实验室",
+  "floor": "4F",
+  "elevation_y": -45.0,
+  "entrances": [],
+  "nodes": [
+    {
+      "id": "in_b920d8ab",
+      "x": 77.968,
+      "y": -17.016,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_721c56fa",
+      "x": 74.997,
+      "y": -16.847,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_adfab33f",
+      "x": 71.76,
+      "y": -16.875,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_26e88a33",
+      "x": 68.74,
+      "y": -16.92,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_fcaf02f4",
+      "x": 65.504,
+      "y": -16.971,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_0b264b5a",
+      "x": 65.254,
+      "y": -15.072,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_306ee422",
+      "x": 65.22,
+      "y": -12.052,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_684f1601",
+      "x": 65.069,
+      "y": -19.718,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_9d82d6e4",
+      "x": 65.117,
+      "y": -22.738,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_6c68c3df",
+      "x": 65.162,
+      "y": -25.758,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_78aaa556",
+      "x": 65.171,
+      "y": -28.78,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_9332fd12",
+      "x": 65.173,
+      "y": -31.802,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_92b8764d",
+      "x": 65.175,
+      "y": -35.04,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_502c1d9c",
+      "x": 65.177,
+      "y": -38.062,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_cc84d010",
+      "x": 65.179,
+      "y": -41.084,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_1b09cb94",
+      "x": 65.181,
+      "y": -43.89,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_9fbc870c",
+      "x": 65.184,
+      "y": -47.128,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_c319ee05",
+      "x": 65.186,
+      "y": -50.15,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_87a6d12d",
+      "x": 65.387,
+      "y": -45.033,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "4F",
+      "label": "401门口"
+    },
+    {
+      "id": "in_6d285716",
+      "x": 58.917,
+      "y": -45.055,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "4F",
+      "label": "401"
+    },
+    {
+      "id": "in_8e56006b",
+      "x": 65.673,
+      "y": -33.116,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "4F",
+      "label": "402门口"
+    },
+    {
+      "id": "in_d58635b2",
+      "x": 58.777,
+      "y": -33.098,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "4F",
+      "label": "402"
+    },
+    {
+      "id": "in_7f90a43b",
+      "x": 64.952,
+      "y": -20.923,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "4F",
+      "label": "403门口"
+    },
+    {
+      "id": "in_0cc18306",
+      "x": 58.503,
+      "y": -20.894,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "4F",
+      "label": "403"
+    },
+    {
+      "id": "in_aa7b30ed",
+      "x": 81.687,
+      "y": -16.972,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_e0893867",
+      "x": 84.708,
+      "y": -16.958,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_cd299e0f",
+      "x": 87.73,
+      "y": -16.946,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_af09f3c1",
+      "x": 90.267,
+      "y": -17.719,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_f3728a82",
+      "x": 90.432,
+      "y": -19.202,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_26b9d4ba",
+      "x": 90.801,
+      "y": -21.981,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_28db08ec",
+      "x": 90.85,
+      "y": -25.217,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_ff61b221",
+      "x": 90.855,
+      "y": -28.239,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_6a307aa0",
+      "x": 90.855,
+      "y": -31.477,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_2703f40b",
+      "x": 90.856,
+      "y": -34.499,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_22a5b96b",
+      "x": 90.856,
+      "y": -37.305,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_e85ada4b",
+      "x": 90.856,
+      "y": -40.327,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_bff505f7",
+      "x": 90.856,
+      "y": -43.565,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_4044b85b",
+      "x": 90.951,
+      "y": -46.368,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_6ddd19a5",
+      "x": 91.051,
+      "y": -49.603,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_cd2ef954",
+      "x": 90.916,
+      "y": -24.883,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "4F",
+      "label": "404门口"
+    },
+    {
+      "id": "in_c66cdc9c",
+      "x": 96.943,
+      "y": -24.992,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "4F",
+      "label": "404"
+    },
+    {
+      "id": "in_f85d6676",
+      "x": 91.077,
+      "y": -36.726,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "4F",
+      "label": "405门口"
+    },
+    {
+      "id": "in_c349739d",
+      "x": 97.757,
+      "y": -36.809,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "4F",
+      "label": "405"
+    },
+    {
+      "id": "in_0895b25f",
+      "x": 90.961,
+      "y": -48.04,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "4F",
+      "label": "406门口"
+    },
+    {
+      "id": "in_179b1036",
+      "x": 98.435,
+      "y": -48.024,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "4F",
+      "label": "406"
+    },
+    {
+      "id": "in_2bab642a",
+      "x": 78.34,
+      "y": -20.826,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_bf96192d",
+      "x": 78.405,
+      "y": -23.845,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_ebbd2195",
+      "x": 78.47,
+      "y": -26.864,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_66c49897",
+      "x": 78.535,
+      "y": -29.882,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_85be932f",
+      "x": 78.6,
+      "y": -32.901,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_f4e499a1",
+      "x": 78.661,
+      "y": -35.886,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "4F"
+    },
+    {
+      "id": "in_b1f0604a",
+      "x": 78.581,
+      "y": -27.454,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "4F",
+      "label": "电梯门口"
+    },
+    {
+      "id": "in_8d238e27",
+      "x": 85.905,
+      "y": -27.485,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "4F",
+      "label": "电梯"
+    }
+  ],
+  "edges": [
+    {
+      "id": "ie_6e202ea2",
+      "from": "in_b920d8ab",
+      "to": "in_721c56fa",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_87cb4d37",
+      "from": "in_721c56fa",
+      "to": "in_adfab33f",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_42b6f6b7",
+      "from": "in_adfab33f",
+      "to": "in_26e88a33",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_606e51a5",
+      "from": "in_26e88a33",
+      "to": "in_fcaf02f4",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_7996a55f",
+      "from": "in_fcaf02f4",
+      "to": "in_0b264b5a",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_96e61aa0",
+      "from": "in_0b264b5a",
+      "to": "in_306ee422",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_624e16e3",
+      "from": "in_fcaf02f4",
+      "to": "in_684f1601",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_8d2c0706",
+      "from": "in_9d82d6e4",
+      "to": "in_6c68c3df",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_58a3896a",
+      "from": "in_6c68c3df",
+      "to": "in_78aaa556",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_f6148b38",
+      "from": "in_78aaa556",
+      "to": "in_9332fd12",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_4838c640",
+      "from": "in_92b8764d",
+      "to": "in_502c1d9c",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_c1003688",
+      "from": "in_502c1d9c",
+      "to": "in_cc84d010",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_d1f7b0a6",
+      "from": "in_cc84d010",
+      "to": "in_1b09cb94",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_0e6903bb",
+      "from": "in_1b09cb94",
+      "to": "in_9fbc870c",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_34289cb1",
+      "from": "in_9fbc870c",
+      "to": "in_c319ee05",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_67dac439",
+      "from": "in_1b09cb94",
+      "to": "in_87a6d12d",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_691124b5",
+      "from": "in_87a6d12d",
+      "to": "in_6d285716",
+      "name": "4F-房间1入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_dc8448e1",
+      "from": "in_9332fd12",
+      "to": "in_8e56006b",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_65afe6f1",
+      "from": "in_8e56006b",
+      "to": "in_92b8764d",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_623dc31f",
+      "from": "in_8e56006b",
+      "to": "in_d58635b2",
+      "name": "4F-房间2入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_3a17e872",
+      "from": "in_684f1601",
+      "to": "in_7f90a43b",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_281ec555",
+      "from": "in_7f90a43b",
+      "to": "in_9d82d6e4",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_80bea6b1",
+      "from": "in_7f90a43b",
+      "to": "in_0cc18306",
+      "name": "4F-房间3入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_645316ad",
+      "from": "in_b920d8ab",
+      "to": "in_aa7b30ed",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_4ad2d7cb",
+      "from": "in_aa7b30ed",
+      "to": "in_e0893867",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_4e3087df",
+      "from": "in_e0893867",
+      "to": "in_cd299e0f",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_6095649c",
+      "from": "in_cd299e0f",
+      "to": "in_af09f3c1",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_cc06dcde",
+      "from": "in_af09f3c1",
+      "to": "in_f3728a82",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_c34f3131",
+      "from": "in_f3728a82",
+      "to": "in_26b9d4ba",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_41ab6cd7",
+      "from": "in_26b9d4ba",
+      "to": "in_28db08ec",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_b6c16e2e",
+      "from": "in_28db08ec",
+      "to": "in_ff61b221",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_c2d02733",
+      "from": "in_ff61b221",
+      "to": "in_6a307aa0",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_dd81a3c6",
+      "from": "in_6a307aa0",
+      "to": "in_2703f40b",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_5a1cd168",
+      "from": "in_2703f40b",
+      "to": "in_22a5b96b",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_2990b9e6",
+      "from": "in_22a5b96b",
+      "to": "in_e85ada4b",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_54f3f636",
+      "from": "in_e85ada4b",
+      "to": "in_bff505f7",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_fe6e0dc8",
+      "from": "in_bff505f7",
+      "to": "in_4044b85b",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_f020818a",
+      "from": "in_28db08ec",
+      "to": "in_cd2ef954",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_e8466528",
+      "from": "in_cd2ef954",
+      "to": "in_c66cdc9c",
+      "name": "4F-房间4入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_3d267b8a",
+      "from": "in_22a5b96b",
+      "to": "in_f85d6676",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_03713290",
+      "from": "in_f85d6676",
+      "to": "in_c349739d",
+      "name": "4F-房间5入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_a73c2c18",
+      "from": "in_4044b85b",
+      "to": "in_0895b25f",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_d4ad9ccb",
+      "from": "in_0895b25f",
+      "to": "in_6ddd19a5",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_ebadab45",
+      "from": "in_0895b25f",
+      "to": "in_179b1036",
+      "name": "4F-房间6入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_d73c58b0",
+      "from": "in_b920d8ab",
+      "to": "in_2bab642a",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_7d1c2260",
+      "from": "in_2bab642a",
+      "to": "in_bf96192d",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_74e7a58b",
+      "from": "in_bf96192d",
+      "to": "in_ebbd2195",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_0eaa5091",
+      "from": "in_ebbd2195",
+      "to": "in_66c49897",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_b15a3762",
+      "from": "in_66c49897",
+      "to": "in_85be932f",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_1673199e",
+      "from": "in_85be932f",
+      "to": "in_f4e499a1",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_3bcdc07c",
+      "from": "in_ebbd2195",
+      "to": "in_b1f0604a",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_b5df9f51",
+      "from": "in_b1f0604a",
+      "to": "in_8d238e27",
+      "name": "4F-房间7入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    }
+  ],
+  "rooms": [
+    {
+      "id": "rm_7df43b2f",
+      "name": "401",
+      "aliases": [],
+      "category": "room",
+      "x": 58.917,
+      "y": -45.055,
+      "node_id": "in_6d285716",
+      "door_node_id": "in_87a6d12d",
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "rm_0140308a",
+      "name": "402",
+      "aliases": [],
+      "category": "room",
+      "x": 58.777,
+      "y": -33.098,
+      "node_id": "in_d58635b2",
+      "door_node_id": "in_8e56006b",
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "rm_13a2c4f0",
+      "name": "403",
+      "aliases": [],
+      "category": "room",
+      "x": 58.503,
+      "y": -20.894,
+      "node_id": "in_0cc18306",
+      "door_node_id": "in_7f90a43b",
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "rm_2c446425",
+      "name": "404",
+      "aliases": [],
+      "category": "room",
+      "x": 96.943,
+      "y": -24.992,
+      "node_id": "in_c66cdc9c",
+      "door_node_id": "in_cd2ef954",
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "rm_c7303c18",
+      "name": "405",
+      "aliases": [],
+      "category": "room",
+      "x": 97.757,
+      "y": -36.809,
+      "node_id": "in_c349739d",
+      "door_node_id": "in_f85d6676",
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "rm_6c197888",
+      "name": "406",
+      "aliases": [],
+      "category": "room",
+      "x": 98.435,
+      "y": -48.024,
+      "node_id": "in_179b1036",
+      "door_node_id": "in_0895b25f",
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "rm_1ab05bab",
+      "name": "电梯",
+      "aliases": [],
+      "category": "room",
+      "x": 85.905,
+      "y": -27.485,
+      "node_id": "in_8d238e27",
+      "door_node_id": "in_b1f0604a",
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    }
+  ],
+  "markers": [
+    {
+      "id": "mk_11",
+      "marker_id": 11,
+      "label": "标牌#11",
+      "x": 82.9375,
+      "y": -25.5,
+      "z": -43.5,
+      "wall_yaw": 3.14159,
+      "size_m": 0.765625,
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "mk_12",
+      "marker_id": 12,
+      "label": "标牌#12",
+      "x": 74.0625,
+      "y": -26.5,
+      "z": -43.5,
+      "wall_yaw": 0.0,
+      "size_m": 0.765625,
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "mk_13",
+      "marker_id": 13,
+      "label": "标牌#13",
+      "x": 63.0625,
+      "y": -19.5,
+      "z": -43.5,
+      "wall_yaw": 0.0,
+      "size_m": 0.765625,
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "mk_14",
+      "marker_id": 14,
+      "label": "标牌#14",
+      "x": 63.0625,
+      "y": -31.5,
+      "z": -43.5,
+      "wall_yaw": 0.0,
+      "size_m": 0.765625,
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "mk_15",
+      "marker_id": 15,
+      "label": "标牌#15",
+      "x": 63.0625,
+      "y": -43.5,
+      "z": -43.5,
+      "wall_yaw": 0.0,
+      "size_m": 0.765625,
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "mk_16",
+      "marker_id": 16,
+      "label": "标牌#16",
+      "x": 92.9375,
+      "y": -26.5,
+      "z": -43.5,
+      "wall_yaw": 3.14159,
+      "size_m": 0.765625,
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "mk_17",
+      "marker_id": 17,
+      "label": "标牌#17",
+      "x": 92.9375,
+      "y": -38.5,
+      "z": -43.5,
+      "wall_yaw": 3.14159,
+      "size_m": 0.765625,
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    },
+    {
+      "id": "mk_18",
+      "marker_id": 18,
+      "label": "标牌#18",
+      "x": 92.9375,
+      "y": -49.5,
+      "z": -43.5,
+      "wall_yaw": 3.14159,
+      "size_m": 0.765625,
+      "indoor_id": "a_aa681194__4F",
+      "building_id": "a_aa681194",
+      "building_name": "实验室",
+      "floor": "4F"
+    }
+  ]
+}

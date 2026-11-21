@@ -1,0 +1,34 @@
+# campus_nav_rbnx — hierarchical outdoor campus mapping & piecewise navigation.
+#
+# Combines simulated RTK localization, a Google Maps-style vector campus map
+# (built with the handheld rtk_mapper tool + manual Web editing), global A*
+# road-graph planning, and receding-horizon piecewise execution backed by the
+# rolling local map + Nav2 stack.
+manifestVersion: 1
+
+package:
+  name: robonix.service.campus_nav
+  version: 0.1.0
+  description: Hierarchical outdoor campus global map, manual RTK surveyor mapping, and piecewise navigation.
+  tags: [service, outdoor, campus-map, rtk, navigation, webui]
+  maintainers:
+    - ZZJJWarth <jzeng25@stu.pku.edu.cn>
+  license: MulanPSL-2.0
+
+build: bash scripts/build.sh
+start: bash scripts/start.sh
+stop: bash scripts/stop.sh
+
+capabilities:
+  - name: robonix/skill/outdoor_navigation/navigate_to_place
+    transport: mcp
+    path: capabilities/navigate_to_place.v1.toml
+  - name: robonix/skill/outdoor_navigation/status
+    transport: mcp
+    path: capabilities/status.v1.toml
+  - name: robonix/skill/outdoor_navigation/cancel
+    transport: mcp
+    path: capabilities/cancel.v1.toml
+  - name: robonix/skill/outdoor_navigation/list_places
+    transport: mcp
+    path: capabilities/list_places.v1.toml

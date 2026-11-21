@@ -1,0 +1,5 @@
+# Cancel the active hierarchical outdoor navigation run and its local Nav2 goal.
+string run_id
+---
+bool accepted
+string detail

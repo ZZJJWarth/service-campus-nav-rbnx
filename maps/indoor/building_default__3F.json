@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "indoor_id": "building_default__3F",
+  "building_id": "building_default",
+  "building_name": "默认建筑",
+  "floor": "3F",
+  "elevation_y": null,
+  "entrances": [],
+  "nodes": [],
+  "edges": [],
+  "rooms": [],
+  "markers": []
+}

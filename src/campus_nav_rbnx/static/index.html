@@ -1,0 +1,2694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Robonix Campus Map &amp; Outdoor Navigator</title>
+  <style>
+    :root {
+      --bg: #edf0f3;
+      --card: rgba(255, 255, 255, 0.96);
+      --border: #d8dee6;
+      --text: #1f2937;
+      --muted: #5f6c7b;
+      --primary: #1a73e8;
+      --primary-hover: #1557b0;
+      --ok: #188038;
+      --warn: #d97706;
+      --danger: #d93025;
+      --shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+    }
+    body.dark {
+      --bg: #111827;
+      --card: rgba(22, 29, 39, 0.95);
+      --border: #2d3a4f;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    #mapCanvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+    #mapCanvas:active { cursor: grabbing; }
+    #mapCanvas.crosshair { cursor: crosshair; }
+
+    /* Floating Google Maps-style Search & Navigation Card */
+    .left-dock {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 348px;
+      max-height: calc(100vh - 28px);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 20;
+      pointer-events: none;
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 12px 14px;
+      pointer-events: auto;
+      backdrop-filter: blur(8px);
+    }
+    .search-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    input[type="text"], select {
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+    input[type="text"]:focus, select:focus { border-color: var(--primary); }
+    button {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 11px;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.12s;
+    }
+    button:hover:not(:disabled) { border-color: var(--primary); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+      font-weight: 500;
+    }
+    button.primary:hover:not(:disabled) { background: var(--primary-hover); }
+    button.danger {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #fff;
+    }
+    button.active {
+      background: #188038;
+      border-color: #188038;
+      color: #fff;
+    }
+    .poi-suggestions {
+      margin-top: 6px;
+      max-height: 150px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .poi-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .poi-item:hover { background: rgba(26, 115, 232, 0.1); }
+    .poi-item .sub { font-size: 11px; color: var(--muted); }
+    .nav-bar {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .nav-status {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .nav-status strong { color: var(--text); }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 9px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: var(--shadow);
+      z-index: 60;
+      display: none;
+      pointer-events: none;
+    }
+    .toast.ok { display: block; background: #188038; color: #fff; }
+    .toast.err { display: block; background: #d93025; color: #fff; }
+    .area-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    .area-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 5px 8px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .area-item:hover { border-color: var(--primary); }
+    .area-item.selected {
+      background: rgba(26, 115, 232, 0.14);
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    .area-rename-box {
+      margin-top: 6px;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--primary);
+      background: rgba(26, 115, 232, 0.06);
+      display: none;
+    }
+    .area-rename-box.open { display: block; }
+
+    /* Mapping & Editor Drawer */
+    .editor-panel {
+      display: none;
+      overflow-y: auto;
+      max-height: calc(100vh - 230px);
+    }
+    .editor-panel.open { display: block; }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 10px 0 6px 0;
+    }
+    .section-title:first-child { margin-top: 0; }
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+    }
+    .tool-grid button { padding: 6px 4px; font-size: 12px; text-align: center; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .row { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+    .survey-box {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px dashed var(--border);
+      background: rgba(26, 115, 232, 0.05);
+      font-size: 12px;
+    }
+
+    /* Top-Right RTK & Mode Pill */
+    .top-right {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      z-index: 20;
+    }
+    .pill {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+      padding: 6px 12px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      backdrop-filter: blur(8px);
+    }
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+    .dot.fixed { background: #22c55e; }
+    .dot.float { background: #f59e0b; }
+    .dot.single { background: #f97316; }
+    .dot.nofix { background: #ef4444; }
+
+    /* Bottom-Right Map Controls */
+    .bottom-right {
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 20;
+    }
+    .fab {
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      border-radius: 10px;
+      padding: 7px 10px;
+      font-size: 13px;
+    }
+    .bottom-left-hud {
+      position: fixed;
+      left: 14px;
+      bottom: 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      border-radius: 8px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--muted);
+      z-index: 15;
+      pointer-events: none;
+    }
+    .mode-banner {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(24, 128, 56, 0.94);
+      color: #fff;
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 500;
+      box-shadow: var(--shadow);
+      z-index: 25;
+      display: none;
+      pointer-events: none;
+    }
+    .map-file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 110px;
+      overflow-y: auto;
+      margin-bottom: 6px;
+    }
+    .map-file-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 8px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .map-file-item:hover { border-color: var(--primary); }
+    .map-file-item.active {
+      background: rgba(26, 115, 232, 0.12);
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    .map-stats {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .mode-banner.danger-banner {
+      background: rgba(217, 48, 37, 0.94);
+    }
+    .floor-switcher {
+      position: fixed;
+      top: 58px;
+      right: 14px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 6px 8px;
+      z-index: 20;
+      backdrop-filter: blur(8px);
+      max-width: 420px;
+    }
+    .floor-switcher button {
+      padding: 4px 9px;
+      font-size: 12px;
+    }
+    .floor-switcher .floor-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 0 4px;
+    }
+    .window-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13.5px;
+      font-weight: 700;
+    }
+    .window-header .win-actions {
+      display: flex;
+      gap: 4px;
+    }
+    .window-header .win-actions button {
+      padding: 3px 8px;
+      font-size: 11.5px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="mapCanvas"></canvas>
+  <div id="modeBanner" class="mode-banner"></div>
+
+  <div class="left-dock">
+    <!-- Search & Global Navigation Card -->
+    <div class="panel">
+      <div class="search-row">
+        <input id="poiSearch" type="text" placeholder="搜索园区地点（如：实验室、饭堂）..." />
+        <button id="btnGoPoi" class="primary" type="button">导航</button>
+      </div>
+      <div id="poiList" class="poi-suggestions"></div>
+      <div class="nav-bar">
+        <button id="btnPickGoal" type="button">地图选点前往</button>
+        <button id="btnInvalidateLoc" class="danger" type="button" title="手动清空当前定位并暂停自动锁定，用于测试失定位后的自主重定位">❌ 使定位失效</button>
+        <button id="btnRelocalize" class="primary" type="button" title="室外优先使用 RTK，室内自动 360° 环顾并沿走廊探索寻找 ArUco 标牌完成定位">🧭 自主重新定位</button>
+        <button id="btnCancelNav" class="danger" type="button" disabled>取消导航</button>
+        <button id="btnClearBlocked" type="button" style="display:none">清除封路</button>
+      </div>
+      <div class="nav-status">
+        <div>状态：<strong id="navState">IDLE</strong> · <span id="navProgress">--</span></div>
+        <div id="navDetail">选择地点或点击「地图选点前往」，底层由 64×64 m 滚动局部地图分段避障执行</div>
+      </div>
+      <div id="toast" class="toast"></div>
+    </div>
+
+    <!-- Window 1: Outdoor Campus Mapping & Vector Editor -->
+    <div id="outdoorEditorPanel" class="panel editor-panel">
+      <div class="window-header">
+        <span>🌍 室外建图窗口</span>
+        <div class="win-actions">
+          <button id="btnSwitchToIndoor" type="button">切到室内建图 →</button>
+          <button id="btnCloseOutdoor" type="button" title="关闭">✕</button>
+        </div>
+      </div>
+
+      <div class="section-title">室外地图列表与管理</div>
+      <div id="mapFileList" class="map-file-list"></div>
+      <div class="row">
+        <select id="mapFileSelect" style="flex:1"></select>
+        <button id="btnSaveMap" class="primary" type="button">保存</button>
+        <button id="btnNewMap" type="button">新建</button>
+        <button id="btnResetMap" class="danger" type="button">重置地图</button>
+      </div>
+      <div id="mapStats" class="map-stats">路点 0 · 路段 0 · 建筑/地块 0 · 地标 0</div>
+
+      <div class="section-title">手持 RTK 测绘仪（robonix_minecraft:rtk_mapper）</div>
+      <div class="survey-box">
+        <div id="mapperStatus">等待玩家手持 rtk_mapper 道具...</div>
+        <div class="form-grid">
+          <select id="surveyMode">
+            <option value="road">录道路（走动自动录/右键打拐点）</option>
+            <option value="area">标建筑/地块（右键打角点/Shift+右键闭合）</option>
+            <option value="poi">标地标 POI（右键原地打标）</option>
+          </select>
+          <button id="btnToggleRecord" class="primary" type="button">开始录制</button>
+        </div>
+        <div id="surveyTip" style="margin-top:5px;font-size:11px;color:var(--muted);">
+          右键含义：录道路=强制落拐点 · 标建筑=采建筑角点（Shift+右键自动闭合） · 标地标=落地标
+        </div>
+        <div class="row">
+          <button id="btnFinishArea" type="button" style="flex:1">闭合当前建筑/地块</button>
+          <button id="btnDropPoiHere" type="button" style="flex:1">在测绘仪处打POI</button>
+        </div>
+      </div>
+
+      <div class="section-title">室外矢量编辑（可直接手动画建筑/道路）</div>
+      <div class="tool-grid">
+        <button data-tool="select" class="active" type="button">选择/拖拽</button>
+        <button data-tool="draw_road" type="button">画道路</button>
+        <button data-tool="draw_area" type="button">画建筑/地块</button>
+        <button data-tool="add_poi" type="button">放地标</button>
+        <button data-tool="delete" type="button">🧹 橡皮擦</button>
+        <button id="btnUndo" type="button">↩ 撤销</button>
+      </div>
+
+      <div class="section-title">新建要素属性</div>
+      <div class="form-grid">
+        <select id="propRoadClass">
+          <option value="primary">主干道</option>
+          <option value="walkway" selected>园区步道</option>
+          <option value="corridor">连廊/通道</option>
+        </select>
+        <input id="propRoadName" type="text" placeholder="道路名称(可选)" />
+        <select id="propAreaKind">
+          <option value="building">建筑</option>
+          <option value="grass">草坪/绿地</option>
+          <option value="plaza">广场/铺装</option>
+          <option value="water">水体</option>
+          <option value="restricted">禁行区</option>
+        </select>
+        <input id="propAreaName" type="text" placeholder="地块名称(如实验楼)" />
+        <select id="propPoiCat">
+          <option value="lab">🏫 实验室</option>
+          <option value="canteen">🍽️ 饭堂</option>
+          <option value="dorm">🏠 宿舍</option>
+          <option value="gate">🚪 校门</option>
+          <option value="plaza">🏛️ 广场</option>
+          <option value="landmark" selected>📍 地标</option>
+        </select>
+        <input id="propPoiName" type="text" placeholder="地标名称(如饭堂)" />
+      </div>
+      <div class="row">
+        <button id="btnClosePolyManual" type="button" style="display:none;flex:1" class="primary">完成当前手绘多边形</button>
+      </div>
+
+      <div class="section-title">建筑与区域列表（点击定位并重命名）</div>
+      <div id="areaList" class="area-list"></div>
+      <div id="areaRenameBox" class="area-rename-box">
+        <div class="row" style="margin-top:0">
+          <input id="editAreaName" type="text" placeholder="输入区域/建筑名称（如 实验楼、饭堂）" style="flex:1" />
+          <select id="editAreaKind" style="width:92px">
+            <option value="building">建筑</option>
+            <option value="grass">草坪</option>
+            <option value="plaza">广场</option>
+            <option value="water">水体</option>
+            <option value="restricted">禁行区</option>
+          </select>
+        </div>
+        <div class="row">
+          <button id="btnApplyAreaRename" class="primary" type="button" style="flex:1">确认重命名并保存</button>
+          <button id="btnDeleteSelectedArea" class="danger" type="button">删除</button>
+        </div>
+      </div>
+
+      <div class="section-title">室外地标列表（点击定位与命名）</div>
+      <div id="outdoorPoiList" class="area-list"></div>
+      <div id="editHint" style="margin-top:8px;font-size:11px;color:var(--muted);">
+        提示：在「选择/拖拽」模式下直接点地图上的建筑也能选中重命名；拖拽道路节点可微调路线。
+      </div>
+    </div>
+
+    <!-- Window 2: Indoor Multi-Floor Odometry & Marker Mapping -->
+    <div id="indoorEditorPanel" class="panel editor-panel">
+      <div class="window-header">
+        <span>🏢 室内建图窗口</span>
+        <div class="win-actions">
+          <button id="btnSwitchToOutdoor" type="button">← 切到室外建图</button>
+          <button id="btnCloseIndoor" type="button" title="关闭">✕</button>
+        </div>
+      </div>
+
+      <div class="section-title">建筑与楼层选择（每层独立保存互不重叠）</div>
+      <div class="row" style="margin-top:0">
+        <select id="indoorBuildingSelect" style="flex:1"></select>
+        <select id="indoorFloorSelect" style="width:74px">
+          <option value="1F" selected>1F</option>
+          <option value="2F">2F</option>
+          <option value="3F">3F</option>
+          <option value="4F">4F</option>
+          <option value="5F">5F</option>
+          <option value="B1">B1</option>
+        </select>
+        <button id="btnEnterFloor" class="primary" type="button">进入楼层</button>
+      </div>
+      <div id="indoorFloorList" class="map-file-list" style="margin-top:6px;max-height:95px;"></div>
+      <div class="row">
+        <button id="btnSaveIndoor" class="primary" type="button" style="flex:1">保存本层</button>
+        <button id="btnIndoorResetFloor" class="danger" type="button" style="flex:1">重置本层</button>
+      </div>
+
+      <div class="section-title">手持室内建图仪（robonix_minecraft:indoor_mapper）</div>
+      <div class="survey-box" style="background: rgba(13, 148, 136, 0.07); border-color: rgba(13, 148, 136, 0.45);">
+        <div id="indoorMapperStatus">等待玩家手持 indoor_mapper 道具...</div>
+        <div id="indoorStateText" style="margin-top:4px;font-weight:600;color:#0f766e;">状态：未开始</div>
+        <div class="row">
+          <input id="indoorRoomName" type="text" placeholder="房间名称（如 101实验室、会议室，可后改）" style="flex:1" />
+        </div>
+        <div class="form-grid">
+          <button id="btnIndoorAnchor" class="primary" type="button">🚪 设本层出口点</button>
+          <button id="btnIndoorCorridorToggle" type="button">▶ 恢复走廊打点</button>
+          <button id="btnIndoorMarkDoor" type="button">🚪 标房间门口点</button>
+          <button id="btnIndoorMarkNav" type="button">📍 标房间导航点</button>
+        </div>
+        <div class="row">
+          <button id="btnIndoorStop" type="button" style="flex:1">结束室内建图</button>
+        </div>
+        <div style="margin-top:5px;font-size:11px;color:var(--muted);">
+          Shift+右键=大门/电梯口设出口并归零里程计 · 普通右键=门口标「房间门口点」(暂停走廊)→进房标「房间导航点」 · 拿室内建图仪右键墙上 ArUco 标牌即可一键绑定定位标牌。
+        </div>
+      </div>
+
+      <div class="section-title">室内图快捷工具</div>
+      <div class="tool-grid">
+        <button data-tool="select" class="active" type="button">选择/查看</button>
+        <button data-tool="delete" type="button">🧹 橡皮擦</button>
+        <button id="btnUndoIndoor" type="button">↩ 撤销</button>
+      </div>
+
+      <div class="section-title">当前楼层房间列表（点击定位、命名、导航）</div>
+      <div id="roomPoiList" class="area-list"></div>
+      <div id="poiRenameBox" class="area-rename-box">
+        <div class="row" style="margin-top:0">
+          <input id="editPoiName" type="text" placeholder="输入房间或地标名称（如 101会议室）" style="flex:1" />
+        </div>
+        <div class="row">
+          <button id="btnApplyPoiRename" class="primary" type="button" style="flex:1">保存命名</button>
+          <button id="btnNavPoiNav" type="button">导航入内</button>
+          <button id="btnNavPoiDoor" type="button" style="display:none">到门口</button>
+          <button id="btnDeleteSelectedPoi" class="danger" type="button">删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top-Right Mode & RTK Status -->
+  <div class="top-right">
+    <div class="pill">
+      <span id="rtkDot" class="dot"></span>
+      <span id="rtkText">RTK: --</span>
+    </div>
+    <div id="visualPill" class="pill" style="display:none">
+      <span>🏷️</span>
+      <span id="visualText">视觉定位: --</span>
+    </div>
+    <button id="btnOutdoorEdit" class="fab" type="button">🌍 室外建图</button>
+    <button id="btnIndoorEdit" class="fab" type="button">🏢 室内建图</button>
+    <button id="btnTheme" class="fab" type="button">深色主题</button>
+  </div>
+
+  <!-- Floating Outdoor / Multi-Floor Switcher (Google Maps-style) -->
+  <div id="floorSwitcher" class="floor-switcher">
+    <button id="btnViewOutdoor" class="active" type="button">🌍 室外全景</button>
+    <span id="floorSwitcherLabel" class="floor-label"></span>
+    <div id="floorSwitcherButtons" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+  </div>
+
+  <!-- Bottom-Right Controls -->
+  <div class="bottom-right">
+    <button id="btnCenterRobot" class="fab" type="button" title="回到机器人当前位置并自动切换到所在楼层（类似 Google 地图定位按钮）">⌖ 当前位置</button>
+    <button id="btnCenterMapper" class="fab" type="button" title="定位到 RTK 测绘仪玩家">🧭 RTK仪</button>
+    <button id="btnCenterIndoor" class="fab" type="button" title="定位到室内建图仪玩家">📐 室内仪</button>
+    <button id="btnZoomIn" class="fab" type="button">＋</button>
+    <button id="btnZoomOut" class="fab" type="button">－</button>
+  </div>
+
+  <div id="coordHud" class="bottom-left-hud">campus_rtk: (--, --) m · 滚轮缩放 · 拖拽平移</div>
+
+  <script>
+    const canvas = document.getElementById('mapCanvas');
+    const ctx = canvas.getContext('2d');
+    const outdoorEditorPanel = document.getElementById('outdoorEditorPanel');
+    const indoorEditorPanel = document.getElementById('indoorEditorPanel');
+    const btnOutdoorEdit = document.getElementById('btnOutdoorEdit');
+    const btnIndoorEdit = document.getElementById('btnIndoorEdit');
+    const outdoorPoiListEl = document.getElementById('outdoorPoiList');
+    const btnSaveIndoor = document.getElementById('btnSaveIndoor');
+    const btnTheme = document.getElementById('btnTheme');
+    const poiSearch = document.getElementById('poiSearch');
+    const poiList = document.getElementById('poiList');
+    const btnGoPoi = document.getElementById('btnGoPoi');
+    const btnPickGoal = document.getElementById('btnPickGoal');
+    const btnCancelNav = document.getElementById('btnCancelNav');
+    const btnClearBlocked = document.getElementById('btnClearBlocked');
+    const toast = document.getElementById('toast');
+    const coordHud = document.getElementById('coordHud');
+    const mapFileSelect = document.getElementById('mapFileSelect');
+    const mapFileList = document.getElementById('mapFileList');
+    const mapStats = document.getElementById('mapStats');
+    const areaListEl = document.getElementById('areaList');
+    const areaRenameBox = document.getElementById('areaRenameBox');
+    const editAreaName = document.getElementById('editAreaName');
+    const editAreaKind = document.getElementById('editAreaKind');
+    const roomPoiListEl = document.getElementById('roomPoiList');
+    const poiRenameBox = document.getElementById('poiRenameBox');
+    const editPoiName = document.getElementById('editPoiName');
+    const btnNavPoiDoor = document.getElementById('btnNavPoiDoor');
+    const btnIndoorCorridorToggle = document.getElementById('btnIndoorCorridorToggle');
+    const indoorBuildingSelect = document.getElementById('indoorBuildingSelect');
+    const indoorFloorSelect = document.getElementById('indoorFloorSelect');
+    const indoorFloorList = document.getElementById('indoorFloorList');
+    const btnViewOutdoor = document.getElementById('btnViewOutdoor');
+    const floorSwitcherLabel = document.getElementById('floorSwitcherLabel');
+    const floorSwitcherButtons = document.getElementById('floorSwitcherButtons');
+    const btnSaveMap = document.getElementById('btnSaveMap');
+    const btnToggleRecord = document.getElementById('btnToggleRecord');
+    const btnClosePolyManual = document.getElementById('btnClosePolyManual');
+
+    const AREA_ICON = {
+      building: '🏢', grass: '🌿', plaza: '🏛️', water: '💧', restricted: '⛔',
+    };
+
+    const CAT_ICON = {
+      lab: '🏫', canteen: '🍽️', dorm: '🏠', gate: '🚪', plaza: '🏛️', room: '🛋️', landmark: '📍', other: '📌',
+    };
+    const LIGHT_PALETTE = {
+      bg: '#edf0f3', grid: 'rgba(100,116,139,0.12)',
+      building: '#dce2e8', buildingStroke: '#aeb9c7',
+      grass: '#ccebc5', grassStroke: '#9bd28f',
+      plaza: '#f5f1e6', plazaStroke: '#dcd3be',
+      water: '#aad3df', waterStroke: '#7db9cb',
+      restricted: 'rgba(239,68,68,0.18)', restrictedStroke: '#ef4444',
+      primaryCase: '#e5b95c', primaryFill: '#fff8dc',
+      walkwayCase: '#cbd5e1', walkwayFill: '#ffffff',
+      corridor: '#94a3b8', label: '#334155', roadLabel: '#475569',
+    };
+    const DARK_PALETTE = {
+      bg: '#121822', grid: 'rgba(148,163,184,0.10)',
+      building: '#222c3c', buildingStroke: '#3b4a62',
+      grass: '#173425', grassStroke: '#22543d',
+      plaza: '#252830', plazaStroke: '#3b414f',
+      water: '#153448', waterStroke: '#1e4e6c',
+      restricted: 'rgba(239,68,68,0.22)', restrictedStroke: '#f87171',
+      primaryCase: '#92400e', primaryFill: '#45341a',
+      walkwayCase: '#334155', walkwayFill: '#475569',
+      corridor: '#64748b', label: '#e2e8f0', roadLabel: '#cbd5e1',
+    };
+
+    let state = null;
+    let mapData = { version: 2, campus_id: 'campus_default', name: '主园区地图', areas: [], nodes: [], edges: [], pois: [] };
+    let activeIndoorId = '';
+    let activeIndoorMap = null;
+    let undoStack = [];
+    let indoorUndoStack = [];
+    let activeEditorWindow = ''; // '' | 'outdoor' | 'indoor'
+    let editOpen = false;
+    let darkTheme = false;
+    let tool = 'select'; // select | draw_road | draw_area | add_poi | delete | pick_goal
+    let roadChainNodeId = null;
+    let areaDraftManual = [];
+    let dragNodeId = null;
+    let dirtyLocal = false;
+    let autoOpenedStandalone = false;
+    let erasing = false;
+    let erasedInStroke = 0;
+    let selectedAreaId = null;
+    let selectedPoiId = null;
+    let lastSavedAt = '';
+
+    // Camera (world meters -> screen pixels)
+    let camX = 80.0;
+    let camY = -20.0;
+    let pxPerM = 7.0;
+    let centeredOnce = false;
+    let panning = false;
+    let panStart = null;
+    let mouseWorld = null;
+
+    function palette() { return darkTheme ? DARK_PALETTE : LIGHT_PALETTE; }
+
+    function showToast(ok, text) {
+      toast.className = `toast ${ok ? 'ok' : 'err'}`;
+      toast.textContent = text;
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => { toast.style.display = 'none'; toast.className = 'toast'; }, 4000);
+    }
+
+    function shortId(prefix) {
+      return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
+    }
+
+    function pushUndo() {
+      if (activeIndoorId && activeIndoorMap) {
+        indoorUndoStack.push(JSON.stringify(activeIndoorMap));
+        if (indoorUndoStack.length > 30) indoorUndoStack.shift();
+        return;
+      }
+      undoStack.push(JSON.stringify(mapData));
+      if (undoStack.length > 30) undoStack.shift();
+    }
+
+    async function commitIndoorToServer(save = true) {
+      if (!activeIndoorMap) return false;
+      dirtyLocal = true;
+      try {
+        const resp = await fetch('/api/indoor/replace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ indoor_map: activeIndoorMap, save }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          showToast(false, data.detail || '室内地图保存失败');
+          return false;
+        }
+        if (save) lastSavedAt = new Date().toTimeString().slice(0, 8);
+        return true;
+      } catch (err) {
+        showToast(false, `室内保存失败: ${err.message}`);
+        return false;
+      } finally {
+        dirtyLocal = false;
+      }
+    }
+
+    async function commitActiveMapToServer(save = true) {
+      if (activeIndoorId && activeIndoorMap) return await commitIndoorToServer(save);
+      return await commitMapToServer(save);
+    }
+
+    async function commitMapToServer(save = true) {
+      dirtyLocal = true;
+      try {
+        const resp = await fetch('/api/map/replace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ map: mapData, save }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          showToast(false, data.detail || '保存失败');
+          return false;
+        }
+        if (save) {
+          lastSavedAt = new Date().toTimeString().slice(0, 8);
+        }
+        return true;
+      } catch (err) {
+        showToast(false, `保存请求失败: ${err.message}`);
+        return false;
+      } finally {
+        dirtyLocal = false;
+      }
+    }
+
+    function resize() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(window.innerWidth * dpr));
+      canvas.height = Math.max(1, Math.floor(window.innerHeight * dpr));
+      render();
+    }
+    window.addEventListener('resize', resize);
+
+    function w2s(wx, wy) {
+      const dpr = window.devicePixelRatio || 1;
+      const sx = canvas.width / 2 + (wx - camX) * pxPerM * dpr;
+      const sy = canvas.height / 2 - (wy - camY) * pxPerM * dpr;
+      return [sx, sy];
+    }
+
+    function s2w(sx, sy) {
+      const dpr = window.devicePixelRatio || 1;
+      const wx = camX + (sx - canvas.width / 2) / (pxPerM * dpr);
+      const wy = camY - (sy - canvas.height / 2) / (pxPerM * dpr);
+      return [wx, wy];
+    }
+
+    function findNodeNear(wx, wy, maxM) {
+      let best = null, bestD = maxM;
+      for (const n of (mapData.nodes || [])) {
+        const d = Math.hypot(n.x - wx, n.y - wy);
+        if (d < bestD) { best = n; bestD = d; }
+      }
+      return best;
+    }
+
+    function findPoiNear(wx, wy, maxM) {
+      let best = null, bestD = maxM;
+      for (const p of (mapData.pois || [])) {
+        const d = Math.hypot(p.x - wx, p.y - wy);
+        if (d < bestD) { best = p; bestD = d; }
+      }
+      return best;
+    }
+
+    function pointInPoly(x, y, poly) {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+        const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi + 1e-9) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function pointToSegDist(px, py, x1, y1, x2, y2) {
+      const dx = x2 - x1, dy = y2 - y1;
+      const len2 = dx * dx + dy * dy;
+      if (len2 < 1e-9) return Math.hypot(px - x1, py - y1);
+      const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+      return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+    }
+
+    function findEdgeNear(wx, wy, maxM) {
+      const nodeById = Object.fromEntries((mapData.nodes || []).map(n => [n.id, n]));
+      let best = null, bestD = maxM;
+      for (const e of (mapData.edges || [])) {
+        const u = nodeById[e.from], v = nodeById[e.to];
+        if (!u || !v) continue;
+        const d = pointToSegDist(wx, wy, u.x, u.y, v.x, v.y);
+        if (d < bestD) { best = e; bestD = d; }
+      }
+      return best;
+    }
+
+    function eraseAt(wx, wy, radiusM) {
+      if (activeIndoorId && activeIndoorMap) {
+        const markers = activeIndoorMap.markers || [];
+        let bestMk = null, bestMD = radiusM * 1.3;
+        for (const mk of markers) {
+          const d = Math.hypot(mk.x - wx, mk.y - wy);
+          if (d < bestMD) { bestMk = mk; bestMD = d; }
+        }
+        if (bestMk) {
+          if (erasedInStroke === 0) pushUndo();
+          activeIndoorMap.markers = markers.filter(m => m.marker_id !== bestMk.marker_id);
+          erasedInStroke++;
+          return `视觉标牌 #${bestMk.marker_id}`;
+        }
+        const rooms = activeIndoorMap.rooms || [];
+        let bestRoom = null, bestRD = radiusM * 1.3;
+        for (const r of rooms) {
+          const d = Math.hypot(r.x - wx, r.y - wy);
+          if (d < bestRD) { bestRoom = r; bestRD = d; }
+        }
+        if (bestRoom) {
+          if (erasedInStroke === 0) pushUndo();
+          activeIndoorMap.rooms = rooms.filter(r => r.id !== bestRoom.id);
+          erasedInStroke++;
+          return `房间「${bestRoom.name}」`;
+        }
+        const inodes = activeIndoorMap.nodes || [];
+        let bestN = null, bestND = radiusM;
+        for (const n of inodes) {
+          const d = Math.hypot(n.x - wx, n.y - wy);
+          if (d < bestND) { bestN = n; bestND = d; }
+        }
+        if (bestN) {
+          if (erasedInStroke === 0) pushUndo();
+          activeIndoorMap.nodes = inodes.filter(n => n.id !== bestN.id);
+          activeIndoorMap.edges = (activeIndoorMap.edges || []).filter(ed => ed.from !== bestN.id && ed.to !== bestN.id);
+          activeIndoorMap.entrances = (activeIndoorMap.entrances || []).filter(ent => ent.node_id !== bestN.id);
+          erasedInStroke++;
+          return `室内节点 ${bestN.label || bestN.id}`;
+        }
+        const nMap = Object.fromEntries(inodes.map(n => [n.id, n]));
+        let bestE = null, bestED = radiusM * 0.95;
+        for (const e of (activeIndoorMap.edges || [])) {
+          const u = nMap[e.from], v = nMap[e.to];
+          if (!u || !v) continue;
+          const d = pointToSegDist(wx, wy, u.x, u.y, v.x, v.y);
+          if (d < bestED) { bestE = e; bestED = d; }
+        }
+        if (bestE) {
+          if (erasedInStroke === 0) pushUndo();
+          activeIndoorMap.edges = (activeIndoorMap.edges || []).filter(ed => ed.id !== bestE.id);
+          const used = new Set();
+          for (const ed of activeIndoorMap.edges) { used.add(ed.from); used.add(ed.to); }
+          activeIndoorMap.nodes = inodes.filter(
+            n => used.has(n.id) || (n.id !== bestE.from && n.id !== bestE.to)
+          );
+          erasedInStroke++;
+          return `室内走廊段`;
+        }
+        return null;
+      }
+      const poi = findPoiNear(wx, wy, radiusM * 1.2);
+      if (poi) {
+        if (erasedInStroke === 0) pushUndo();
+        mapData.pois = (mapData.pois || []).filter(p => p.id !== poi.id);
+        erasedInStroke++;
+        return `地标「${poi.name}」`;
+      }
+      const node = findNodeNear(wx, wy, radiusM);
+      if (node) {
+        if (erasedInStroke === 0) pushUndo();
+        mapData.nodes = (mapData.nodes || []).filter(n => n.id !== node.id);
+        mapData.edges = (mapData.edges || []).filter(ed => ed.from !== node.id && ed.to !== node.id);
+        erasedInStroke++;
+        return `路网节点 ${node.id}`;
+      }
+      const edge = findEdgeNear(wx, wy, radiusM * 0.95);
+      if (edge) {
+        if (erasedInStroke === 0) pushUndo();
+        mapData.edges = (mapData.edges || []).filter(ed => ed.id !== edge.id);
+        // Remove orphaned endpoints that no longer belong to any edge
+        const used = new Set();
+        for (const ed of mapData.edges) { used.add(ed.from); used.add(ed.to); }
+        mapData.nodes = (mapData.nodes || []).filter(
+          n => used.has(n.id) || (n.id !== edge.from && n.id !== edge.to)
+        );
+        erasedInStroke++;
+        return `路段 ${edge.name || edge.id}`;
+      }
+      const area = (mapData.areas || []).find(a => pointInPoly(wx, wy, a.polygon || []));
+      if (area) {
+        if (erasedInStroke === 0) pushUndo();
+        mapData.areas = (mapData.areas || []).filter(a => a.id !== area.id);
+        erasedInStroke++;
+        return `建筑/地块「${area.name || area.id}」`;
+      }
+      return null;
+    }
+
+    function render() {
+      const pal = palette();
+      const dpr = window.devicePixelRatio || 1;
+      ctx.fillStyle = pal.bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Metric background grid
+      const stepM = pxPerM >= 12 ? 5 : pxPerM >= 4 ? 10 : 25;
+      const [minX, maxY] = s2w(0, 0);
+      const [maxX, minY] = s2w(canvas.width, canvas.height);
+      ctx.strokeStyle = pal.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = Math.floor(minX / stepM) * stepM; x <= maxX; x += stepM) {
+        const [sx] = w2s(x, 0);
+        ctx.moveTo(sx, 0); ctx.lineTo(sx, canvas.height);
+      }
+      for (let y = Math.floor(minY / stepM) * stepM; y <= maxY; y += stepM) {
+        const [, sy] = w2s(0, y);
+        ctx.moveTo(0, sy); ctx.lineTo(canvas.width, sy);
+      }
+      ctx.stroke();
+
+      // 1. Area Polygons (grass/plaza/water first, buildings on top)
+      const areaOrder = { grass: 0, plaza: 1, water: 2, restricted: 3, building: 4 };
+      const sortedAreas = [...(mapData.areas || [])].sort(
+        (a, b) => (areaOrder[a.kind] ?? 3) - (areaOrder[b.kind] ?? 3)
+      );
+      for (const a of sortedAreas) {
+        if (!a.polygon || a.polygon.length < 3) continue;
+        ctx.save();
+        ctx.beginPath();
+        a.polygon.forEach((pt, idx) => {
+          const [sx, sy] = w2s(pt[0], pt[1]);
+          if (idx === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        });
+        ctx.closePath();
+        if (a.kind === 'building') {
+          ctx.shadowColor = 'rgba(15, 23, 42, 0.16)';
+          ctx.shadowBlur = 6 * dpr;
+          ctx.shadowOffsetY = 2 * dpr;
+        }
+        ctx.fillStyle = pal[a.kind] || pal.building;
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        const isSelArea = selectedAreaId && a.id === selectedAreaId;
+        ctx.strokeStyle = isSelArea ? '#1a73e8' : (pal[`${a.kind}Stroke`] || pal.buildingStroke);
+        ctx.lineWidth = (isSelArea ? 3.2 : 1.4) * dpr;
+        ctx.stroke();
+
+        if (a.name) {
+          let cx = 0, cy = 0;
+          for (const pt of a.polygon) { cx += pt[0]; cy += pt[1]; }
+          cx /= a.polygon.length; cy /= a.polygon.length;
+          const [tx, ty] = w2s(cx, cy);
+          const floors = ((state && state.indoor_maps) || [])
+            .filter(fm => fm.building_id === a.id)
+            .map(fm => fm.floor);
+          const badge = floors.length ? ` [${floors.join('/')}]` : '';
+          ctx.fillStyle = pal.label;
+          ctx.font = `600 ${Math.round(12 * dpr)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.fillText(a.name + badge, tx, ty + 4 * dpr);
+        }
+        ctx.restore();
+      }
+
+      // 2. Outdoor Roads (dimmed when inspecting an indoor floor so floors never clutter)
+      const inIndoorView = Boolean(activeIndoorId && activeIndoorMap);
+      ctx.save();
+      if (inIndoorView) ctx.globalAlpha = 0.28;
+      const nodeById = Object.fromEntries((mapData.nodes || []).map(n => [n.id, n]));
+      const blockedSet = new Set((state && state.navigation && state.navigation.blocked_edges) || []);
+      for (const pass of ['case', 'fill']) {
+        for (const e of (mapData.edges || [])) {
+          const u = nodeById[e.from], v = nodeById[e.to];
+          if (!u || !v) continue;
+          const [x1, y1] = w2s(u.x, u.y);
+          const [x2, y2] = w2s(v.x, v.y);
+          const wPx = Math.max(3 * dpr, (e.width_m || 3.0) * pxPerM * dpr * 0.72);
+          ctx.save();
+          ctx.lineCap = 'round';
+          if (e.road_class === 'corridor') {
+            if (pass === 'fill') {
+              ctx.setLineDash([6 * dpr, 4 * dpr]);
+              ctx.strokeStyle = darkTheme ? '#38bdf8' : '#0284c7';
+              ctx.lineWidth = Math.max(2.5 * dpr, wPx * 0.65);
+              ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+            }
+          } else if (e.road_class === 'room_entry') {
+            if (pass === 'fill') {
+              ctx.setLineDash([3 * dpr, 3 * dpr]);
+              ctx.strokeStyle = '#f59e0b';
+              ctx.lineWidth = Math.max(2.5 * dpr, wPx * 0.6);
+              ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+            }
+          } else {
+            const isPrimary = e.road_class === 'primary';
+            ctx.strokeStyle = pass === 'case'
+              ? (isPrimary ? pal.primaryCase : pal.walkwayCase)
+              : (isPrimary ? pal.primaryFill : pal.walkwayFill);
+            ctx.lineWidth = pass === 'case' ? wPx + 3 * dpr : wPx;
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          }
+          if (pass === 'fill' && blockedSet.has(e.id)) {
+            ctx.setLineDash([6 * dpr, 4 * dpr]);
+            ctx.strokeStyle = '#ea4335';
+            ctx.lineWidth = 3 * dpr;
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          }
+          if (pass === 'fill' && e.name && pxPerM >= 4.5) {
+            ctx.fillStyle = pal.roadLabel;
+            ctx.font = `${Math.round(10.5 * dpr)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.fillText(e.name, (x1 + x2) / 2, (y1 + y2) / 2 - 4 * dpr);
+          }
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+
+      // 2b. Outdoor overview: show 1F building entrance markers so outdoor-indoor link is visible
+      if (!inIndoorView) {
+        for (const fm of ((state && state.indoor_maps) || [])) {
+          for (const ent of (fm.entrances || [])) {
+            if (!ent.outdoor_node_id) continue;
+            const [sx, sy] = w2s(ent.x, ent.y);
+            ctx.save();
+            ctx.fillStyle = '#0d9488';
+            ctx.beginPath(); ctx.arc(sx, sy, 6 * dpr, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+            if (pxPerM >= 4) {
+              ctx.fillStyle = darkTheme ? '#5eead4' : '#0f766e';
+              ctx.font = `600 ${Math.round(11 * dpr)}px sans-serif`;
+              ctx.fillText(`🚪 ${ent.name || fm.building_name}`, sx + 9 * dpr, sy + 4 * dpr);
+            }
+            ctx.restore();
+          }
+        }
+      }
+
+      // 2c. Active Indoor Floor Sub-Map (corridors, room_entry, entrance, room_door, room_nav, rooms)
+      if (inIndoorView) {
+        const inNodeById = Object.fromEntries((activeIndoorMap.nodes || []).map(n => [n.id, n]));
+        for (const e of (activeIndoorMap.edges || [])) {
+          const u = inNodeById[e.from], v = inNodeById[e.to];
+          if (!u || !v) continue;
+          const [x1, y1] = w2s(u.x, u.y);
+          const [x2, y2] = w2s(v.x, v.y);
+          ctx.save();
+          ctx.lineCap = 'round';
+          if (e.road_class === 'room_entry') {
+            ctx.setLineDash([4 * dpr, 3 * dpr]);
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 3 * dpr;
+          } else {
+            ctx.strokeStyle = darkTheme ? '#38bdf8' : '#0284c7';
+            ctx.lineWidth = Math.max(3.5 * dpr, (e.width_m || 2.0) * pxPerM * dpr * 0.55);
+          }
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          ctx.restore();
+        }
+        for (const n of (activeIndoorMap.nodes || [])) {
+          const nk = n.kind || 'corridor';
+          const [sx, sy] = w2s(n.x, n.y);
+          ctx.save();
+          if (nk === 'entrance' || nk === 'elevator') {
+            ctx.fillStyle = '#0d9488';
+            ctx.beginPath(); ctx.arc(sx, sy, 7 * dpr, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+            ctx.fillStyle = darkTheme ? '#5eead4' : '#0f766e';
+            ctx.font = `600 ${Math.round(11.5 * dpr)}px sans-serif`;
+            ctx.fillText(`🚪 ${n.label || '出口'}`, sx + 9 * dpr, sy + 4 * dpr);
+          } else if (nk === 'room_door') {
+            const r = 5 * dpr;
+            ctx.fillStyle = '#f59e0b';
+            ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.6 * dpr; ctx.strokeRect(sx - r, sy - r, r * 2, r * 2);
+          } else if (nk === 'room_nav') {
+            ctx.fillStyle = '#10b981';
+            ctx.beginPath(); ctx.arc(sx, sy, 6 * dpr, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+          } else if (editOpen) {
+            ctx.fillStyle = '#0284c7';
+            ctx.beginPath(); ctx.arc(sx, sy, 3.8 * dpr, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4 * dpr; ctx.stroke();
+          }
+          ctx.restore();
+        }
+        for (const r of (activeIndoorMap.rooms || [])) {
+          const [sx, sy] = w2s(r.x, r.y);
+          ctx.save();
+          ctx.fillStyle = darkTheme ? '#a7f3d0' : '#065f46';
+          ctx.font = `600 ${Math.round(12.5 * dpr)}px sans-serif`;
+          ctx.fillText(`🛋️ ${r.name}`, sx + 9 * dpr, sy + 4 * dpr);
+          ctx.restore();
+        }
+        // Render bound ArUco wall markers (purple badge + outward normal arrow)
+        for (const mk of (activeIndoorMap.markers || [])) {
+          const [sx, sy] = w2s(mk.x, mk.y);
+          const wy = Number(mk.wall_yaw || 0);
+          const [nx, ny] = w2s(mk.x + Math.cos(wy) * 1.1, mk.y + Math.sin(wy) * 1.1);
+          ctx.save();
+          ctx.strokeStyle = '#9333ea';
+          ctx.lineWidth = 2.2 * dpr;
+          ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(nx, ny); ctx.stroke();
+          ctx.fillStyle = '#9333ea';
+          ctx.fillRect(sx - 5 * dpr, sy - 5 * dpr, 10 * dpr, 10 * dpr);
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * dpr;
+          ctx.strokeRect(sx - 5 * dpr, sy - 5 * dpr, 10 * dpr, 10 * dpr);
+          ctx.fillStyle = darkTheme ? '#e9d5ff' : '#6b21a8';
+          ctx.font = `700 ${Math.round(11 * dpr)}px monospace`;
+          ctx.fillText(`🏷️#${mk.marker_id}`, sx + 8 * dpr, sy - 6 * dpr);
+          ctx.restore();
+        }
+      }
+
+      // Always show special indoor topology nodes (entrance / room_door / room_nav);
+      // show all nodes in edit mode.
+      for (const n of (mapData.nodes || [])) {
+        const nk = n.kind || 'waypoint';
+        const isSpecial = nk === 'entrance' || nk === 'room_door' || nk === 'room_nav';
+        if (!editOpen && !isSpecial) continue;
+        const [sx, sy] = w2s(n.x, n.y);
+        ctx.save();
+        if (nk === 'entrance') {
+          ctx.fillStyle = '#0d9488';
+          ctx.beginPath(); ctx.arc(sx, sy, 6.5 * dpr, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+          if (pxPerM >= 4) {
+            ctx.fillStyle = darkTheme ? '#5eead4' : '#0f766e';
+            ctx.font = `600 ${Math.round(11 * dpr)}px sans-serif`;
+            ctx.fillText(`🚪 ${n.label || '出口'}`, sx + 9 * dpr, sy + 4 * dpr);
+          }
+        } else if (nk === 'room_door') {
+          const r = 4.5 * dpr;
+          ctx.fillStyle = '#f59e0b';
+          ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * dpr; ctx.strokeRect(sx - r, sy - r, r * 2, r * 2);
+        } else if (nk === 'room_nav') {
+          ctx.fillStyle = '#10b981';
+          ctx.beginPath(); ctx.arc(sx, sy, 5.5 * dpr, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.8 * dpr; ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.arc(sx, sy, (n.id === roadChainNodeId ? 6 : 4) * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = n.id === roadChainNodeId ? '#188038' : (nk === 'corridor' ? '#0284c7' : '#1a73e8');
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // Draft area polygon (manual or live surveyor)
+      const draftPoly = areaDraftManual.length > 0
+        ? areaDraftManual
+        : ((state && state.survey && state.survey.recorder && state.survey.recorder.area_draft) || []);
+      if (draftPoly.length >= 1) {
+        ctx.save();
+        ctx.strokeStyle = '#188038';
+        ctx.fillStyle = 'rgba(24, 128, 56, 0.16)';
+        ctx.lineWidth = 2 * dpr;
+        ctx.setLineDash([5 * dpr, 4 * dpr]);
+        ctx.beginPath();
+        draftPoly.forEach((pt, idx) => {
+          const [sx, sy] = w2s(pt[0], pt[1]);
+          if (idx === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        });
+        if (areaDraftManual.length > 0 && mouseWorld) {
+          const [mx, my] = w2s(mouseWorld[0], mouseWorld[1]);
+          ctx.lineTo(mx, my);
+        }
+        if (draftPoly.length >= 3) ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        for (const pt of draftPoly) {
+          const [vx, vy] = w2s(pt[0], pt[1]);
+          ctx.beginPath(); ctx.arc(vx, vy, 4.5 * dpr, 0, Math.PI * 2);
+          ctx.fillStyle = '#188038'; ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // 3. RTK Base Stations + coverage rings
+      const maxRange = (state && state.rtk_max_range_m) || 256;
+      for (const st of ((state && state.stations) || [])) {
+        const [sx, sy] = w2s(st.east, st.north);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(26, 115, 232, 0.18)';
+        ctx.fillStyle = 'rgba(26, 115, 232, 0.03)';
+        ctx.lineWidth = 1.2 * dpr;
+        ctx.setLineDash([6 * dpr, 6 * dpr]);
+        ctx.beginPath();
+        ctx.arc(sx, sy, maxRange * pxPerM * dpr, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#1a73e8';
+        ctx.beginPath(); ctx.arc(sx, sy, 7 * dpr, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+        ctx.fillStyle = pal.label;
+        ctx.font = `600 ${Math.round(11 * dpr)}px monospace`;
+        ctx.fillText(`📡 ${st.id}`, sx + 10 * dpr, sy + 4 * dpr);
+        ctx.restore();
+      }
+
+      // 4. Rolling 64x64 m local window outline
+      const lw = state && state.local_window;
+      if (lw) {
+        const [x0, y0] = w2s(lw.origin_x, lw.origin_y + lw.size_y);
+        const [x1, y1] = w2s(lw.origin_x + lw.size_x, lw.origin_y);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(14, 165, 233, 0.55)';
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.setLineDash([6 * dpr, 4 * dpr]);
+        ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+        ctx.restore();
+      }
+
+      // 5. Active Global Route (Google Maps blue line) + Subgoal
+      const nav = state && state.navigation;
+      if (nav && Array.isArray(nav.route_points) && nav.route_points.length >= 2) {
+        const active = nav.state === 'RUNNING' || nav.state === 'PENDING';
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = active ? '#0d47a1' : 'rgba(100,116,139,0.45)';
+        ctx.lineWidth = 8 * dpr;
+        ctx.beginPath();
+        nav.route_points.forEach((pt, i) => {
+          const [sx, sy] = w2s(pt[0], pt[1]);
+          if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        });
+        ctx.stroke();
+        ctx.strokeStyle = active ? '#4285f4' : 'rgba(148,163,184,0.6)';
+        ctx.lineWidth = 5 * dpr;
+        ctx.stroke();
+        ctx.restore();
+
+        if (active && typeof nav.subgoal_x === 'number' && typeof nav.subgoal_y === 'number') {
+          const [gx, gy] = w2s(nav.subgoal_x, nav.subgoal_y);
+          ctx.save();
+          ctx.strokeStyle = '#188038';
+          ctx.fillStyle = 'rgba(34, 197, 94, 0.25)';
+          ctx.lineWidth = 2.5 * dpr;
+          ctx.beginPath(); ctx.arc(gx, gy, 9 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // 6. POIs
+      for (const p of (mapData.pois || [])) {
+        const [sx, sy] = w2s(p.x, p.y);
+        const icon = CAT_ICON[p.category] || '📍';
+        ctx.save();
+        ctx.fillStyle = '#ea4335';
+        ctx.beginPath(); ctx.arc(sx, sy, 7 * dpr, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+        ctx.font = `600 ${Math.round(12.5 * dpr)}px sans-serif`;
+        ctx.fillStyle = pal.label;
+        ctx.fillText(`${icon} ${p.name}`, sx + 10 * dpr, sy + 4 * dpr);
+        ctx.restore();
+      }
+
+      // 7. Handheld rtk_mapper & indoor_mapper Player(s)
+      const holders = (state && state.survey && state.survey.holders) || [];
+      for (const h of holders) {
+        const fix = h.fix || {};
+        if (!fix.valid) continue;
+        const [sx, sy] = w2s(fix.east, fix.north);
+        ctx.save();
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.20)';
+        ctx.beginPath(); ctx.arc(sx, sy, Math.max(12 * dpr, (fix.sigma_xy || 0.05) * pxPerM * dpr), 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#9333ea';
+        ctx.beginPath(); ctx.arc(sx, sy, 7 * dpr, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+        ctx.fillStyle = '#7e22ce';
+        ctx.font = `600 ${Math.round(11.5 * dpr)}px sans-serif`;
+        ctx.fillText(`🧭 ${h.player}`, sx + 10 * dpr, sy - 6 * dpr);
+        ctx.restore();
+      }
+      const indoorHolders = (state && state.survey && state.survey.indoor_holders) || [];
+      for (const ih of indoorHolders) {
+        const ip = ih.pose || {};
+        const [sx, sy] = w2s(Number(ip.east || 0), Number(ip.north || 0));
+        ctx.save();
+        ctx.fillStyle = 'rgba(13, 148, 136, 0.22)';
+        ctx.beginPath(); ctx.arc(sx, sy, 13 * dpr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#0d9488';
+        ctx.beginPath(); ctx.arc(sx, sy, 7 * dpr, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+        ctx.fillStyle = darkTheme ? '#5eead4' : '#0f766e';
+        ctx.font = `600 ${Math.round(11.5 * dpr)}px sans-serif`;
+        ctx.fillText(`📐 ${ih.player}${ip.anchored ? ' (室内里程计)' : ' (未设出口)'}`, sx + 10 * dpr, sy - 6 * dpr);
+        ctx.restore();
+      }
+
+      // 8. Robot Blue Dot + RTK uncertainty circle + Heading Arrow
+      const r = state && state.robot;
+      if (r && r.has_pose) {
+        const [rx, ry] = w2s(r.x, r.y);
+        const sigma = (r.rtk_status && r.rtk_status.sigma_xy) || 0.2;
+        if (sigma < 50) {
+          ctx.save();
+          ctx.fillStyle = 'rgba(66, 133, 244, 0.16)';
+          ctx.beginPath();
+          ctx.arc(rx, ry, Math.max(10 * dpr, sigma * pxPerM * dpr), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.save();
+        ctx.translate(rx, ry);
+        ctx.rotate(-r.yaw);
+        ctx.fillStyle = '#1a73e8';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2.2 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(11 * dpr, 0);
+        ctx.lineTo(-7 * dpr, -7 * dpr);
+        ctx.lineTo(-4 * dpr, 0);
+        ctx.lineTo(-7 * dpr, 7 * dpr);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 9. Eraser brush ring preview
+      if (editOpen && tool === 'delete' && mouseWorld) {
+        const snapM = Math.max(1.4, 14 / pxPerM);
+        const [mx, my] = w2s(mouseWorld[0], mouseWorld[1]);
+        ctx.save();
+        ctx.strokeStyle = '#d93025';
+        ctx.fillStyle = 'rgba(217, 48, 37, 0.14)';
+        ctx.lineWidth = 2 * dpr;
+        ctx.setLineDash([4 * dpr, 3 * dpr]);
+        ctx.beginPath();
+        ctx.arc(mx, my, snapM * pxPerM * dpr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    function updateUI(data) {
+      state = data;
+      if (!dirtyLocal && !dragNodeId && !erasing && data.map) {
+        mapData = data.map;
+        activeIndoorId = data.active_indoor_id || '';
+        activeIndoorMap = data.active_indoor_map || null;
+      }
+      if (data.standalone && !autoOpenedStandalone) {
+        autoOpenedStandalone = true;
+        if (!editOpen) {
+          setEditorWindow(activeIndoorId ? 'indoor' : 'outdoor', false);
+        }
+      }
+      if (!centeredOnce) {
+        if (data.robot && data.robot.has_pose) {
+          camX = data.robot.x; camY = data.robot.y; centeredOnce = true;
+        } else if (data.stations && data.stations.length) {
+          camX = data.stations[0].east; camY = data.stations[0].north; centeredOnce = true;
+        }
+      }
+
+      // Map file selector & visible map list
+      const curFiles = data.map_files || [];
+      if (mapFileSelect.options.length !== curFiles.length) {
+        mapFileSelect.innerHTML = '';
+        for (const f of curFiles) {
+          const opt = document.createElement('option');
+          opt.value = f; opt.textContent = f;
+          if (f === data.active_file) opt.selected = true;
+          mapFileSelect.appendChild(opt);
+        }
+      } else {
+        mapFileSelect.value = data.active_file;
+      }
+      const listKey = `${data.active_file}|${curFiles.join(',')}`;
+      if (mapFileList.dataset.key !== listKey) {
+        mapFileList.dataset.key = listKey;
+        mapFileList.innerHTML = '';
+        for (const f of curFiles) {
+          const row = document.createElement('div');
+          row.className = 'map-file-item' + (f === data.active_file ? ' active' : '');
+          row.innerHTML = `<span>🗺️ ${f}</span><span style="font-size:11px;color:var(--muted)">${f === data.active_file ? '当前' : '点击切换'}</span>`;
+          row.addEventListener('click', async () => {
+            if (f === data.active_file) return;
+            const resp = await fetch('/api/map/load', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ file: f }),
+            });
+            const d = await resp.json();
+            showToast(Boolean(resp.ok && d.ok), d.detail || '切换完成');
+            poll();
+          });
+          mapFileList.appendChild(row);
+        }
+      }
+      mapStats.textContent =
+        `路点 ${(mapData.nodes || []).length} · 路段 ${(mapData.edges || []).length} · ` +
+        `建筑/地块 ${(mapData.areas || []).length} · 地标 ${(mapData.pois || []).length}` +
+        (lastSavedAt ? ` · 已保存 ${lastSavedAt}` : '');
+
+      // RTK pill
+      const rs = (data.robot && data.robot.rtk_status) || {};
+      const ft = rs.fix_type || 'NO_FIX';
+      const dot = document.getElementById('rtkDot');
+      dot.className = 'dot ' + (
+        ft === 'RTK_FIXED' ? 'fixed' : ft === 'RTK_FLOAT' ? 'float' : ft === 'SINGLE_GNSS' ? 'single' : 'nofix'
+      );
+      const distTxt = rs.base_distance_m >= 0 ? ` · ${rs.base_distance_m.toFixed(0)}m` : '';
+      document.getElementById('rtkText').textContent =
+        `RTK: ${ft} (${rs.num_sats || 0}星 · 天空${Math.round((rs.sky_visibility || 0) * 100)}%${distTxt})`;
+
+      // Visual fiducial relocalization & cold-start lock pill
+      const vf = data.robot && data.robot.visual_fix;
+      const reloc = data.relocalize || {};
+      const vPill = document.getElementById('visualPill');
+      if (reloc.active) {
+        vPill.style.display = 'flex';
+        document.getElementById('visualText').textContent = `🔍 ${reloc.detail || '正在自主重新定位...'}`;
+      } else if (data.robot && data.robot.invalidated) {
+        vPill.style.display = 'flex';
+        document.getElementById('visualText').textContent = '❌ 定位已失效（点击「自主重新定位」恢复）';
+      } else if (vf) {
+        vPill.style.display = 'flex';
+        const vAge = data.robot.visual_age_s != null ? ` · ${data.robot.visual_age_s.toFixed(0)}s前` : '';
+        document.getElementById('visualText').textContent =
+          `标牌 #${vf.marker_id} · ${vf.building_name}${vf.floor} (${Number(vf.distance_m).toFixed(1)}m${vAge})`;
+      } else if (data.robot && data.robot.require_global_lock && !data.robot.globally_localized) {
+        vPill.style.display = 'flex';
+        document.getElementById('visualText').textContent = '⚠️ 未定位（等待室外 RTK 或点击「自主重新定位」）';
+      } else {
+        vPill.style.display = 'none';
+      }
+
+      // Navigation card
+      const nav = data.navigation || {};
+      const st = nav.state || 'IDLE';
+      document.getElementById('navState').textContent = st;
+      const active = st === 'RUNNING' || st === 'PENDING';
+      btnCancelNav.disabled = !(active || reloc.active);
+      btnClearBlocked.style.display = (nav.blocked_edges && nav.blocked_edges.length) ? 'inline-block' : 'none';
+      const legTag = (nav.total_legs && nav.total_legs > 1) ? `阶段 ${nav.leg_index || 1}/${nav.total_legs} · ` : '';
+      const elevTag = nav.elevator_phase ? `🛗 ${nav.elevator_phase} · ` : '';
+      document.getElementById('navProgress').textContent = active
+        ? `${legTag}${elevTag}目标 ${nav.place} · 剩 ${(nav.remaining_m || 0).toFixed(1)} m (${nav.current_segment}/${nav.total_segments}段)`
+        : (nav.place ? `上次目标 ${nav.place}` : '空闲');
+      document.getElementById('navDetail').textContent = nav.detail || '';
+
+      // Survey / handheld rtk_mapper status
+      const survey = data.survey || {};
+      const holders = survey.holders || [];
+      const rec = survey.recorder || {};
+      const mapperBox = document.getElementById('mapperStatus');
+      if (survey.error) {
+        mapperBox.textContent = `服务端 25577 暂不可达: ${survey.error}`;
+      } else if (!holders.length) {
+        mapperBox.textContent = `未检测到手持 rtk_mapper 的玩家（基站数: ${(data.stations || []).length}）`;
+      } else {
+        const h = holders[0];
+        const f = h.fix || {};
+        mapperBox.textContent =
+          `持仪玩家: ${h.player} · ${f.fix_type || 'NO_FIX'} · 天空${Math.round((f.sky_visibility || 0) * 100)}% · ` +
+          (f.valid ? `(${Number(f.east).toFixed(1)}, ${Number(f.north).toFixed(1)})` : '无信号');
+      }
+      btnToggleRecord.textContent = rec.active ? '停止并保存' : '开始录制';
+      btnToggleRecord.className = rec.active ? 'danger' : 'primary';
+
+      // Handheld indoor_mapper (odometry) status
+      const iHolders = survey.indoor_holders || [];
+      const irec = survey.indoor_recorder || {};
+      const iStatusBox = document.getElementById('indoorMapperStatus');
+      const iStateBox = document.getElementById('indoorStateText');
+      if (survey.error) {
+        iStatusBox.textContent = `服务端 25577 暂不可达: ${survey.error}`;
+      } else if (!iHolders.length) {
+        iStatusBox.textContent = '未检测到手持 indoor_mapper（室内建图仪）的玩家';
+      } else {
+        const ih = iHolders[0];
+        const ip = ih.pose || {};
+        iStatusBox.textContent =
+          `持仪玩家: ${ih.player} · ${ip.anchored ? '已设出口锚点' : '未设出口点'} · ` +
+          `(${Number(ip.east || 0).toFixed(1)}, ${Number(ip.north || 0).toFixed(1)})` +
+          (ip.anchored ? ` [dE ${Number(ip.odom_dx || 0).toFixed(1)}, dN ${Number(ip.odom_dy || 0).toFixed(1)}]` : '');
+      }
+      const INDOOR_STATE_LABELS = {
+        idle: '未开始（请在大门 Shift+右键 设建筑出口点）',
+        corridor: '走廊自动打点中（走到房门口右键标「房间门口点」）',
+        awaiting_room_nav: '已标房间门口点（走廊已暂停 · 进房右键标「房间导航点」）',
+        in_room_paused: '走廊打点已暂停（走回走廊后手动点「恢复走廊打点」）',
+      };
+      const ist = irec.state || 'idle';
+      iStateBox.textContent = `状态：${INDOOR_STATE_LABELS[ist] || ist}`;
+      if (ist === 'corridor') {
+        btnIndoorCorridorToggle.textContent = '⏸ 暂停走廊打点';
+        btnIndoorCorridorToggle.className = 'danger';
+      } else {
+        btnIndoorCorridorToggle.textContent = '▶ 恢复走廊打点';
+        btnIndoorCorridorToggle.className = 'active';
+      }
+
+      renderPoiList();
+      renderAreaList();
+      renderIndoorFloorControls();
+      renderRoomPoiManager();
+      updateBanner();
+      render();
+    }
+
+    async function selectFloor(payload) {
+      const resp = await fetch('/api/indoor/select_floor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await resp.json();
+      if (resp.ok && d.ok) {
+        activeIndoorId = d.active_indoor_id || '';
+        activeIndoorMap = d.indoor_map || null;
+        if (activeIndoorId && editOpen) {
+          setEditorWindow('indoor', false);
+        } else if (!activeIndoorId && editOpen && activeEditorWindow === 'indoor') {
+          setEditorWindow('outdoor', false);
+        }
+        showToast(true, d.detail || '已切换视图');
+        if (activeIndoorMap && activeIndoorMap.building_id) {
+          const b = (mapData.areas || []).find(a => a.id === activeIndoorMap.building_id);
+          if (b && b.polygon && b.polygon.length) {
+            let cx = 0, cy = 0;
+            for (const pt of b.polygon) { cx += pt[0]; cy += pt[1]; }
+            camX = cx / b.polygon.length; camY = cy / b.polygon.length;
+          }
+        }
+        await poll();
+      } else {
+        showToast(false, d.detail || '切换楼层失败');
+      }
+    }
+
+    function renderIndoorFloorControls() {
+      const bldgs = (mapData.areas || []).filter(a => a.kind === 'building');
+      const bKey = bldgs.map(b => `${b.id}:${b.name}`).join('|');
+      if (indoorBuildingSelect.dataset.key !== bKey) {
+        const prev = indoorBuildingSelect.value;
+        indoorBuildingSelect.dataset.key = bKey;
+        indoorBuildingSelect.innerHTML = '';
+        if (!bldgs.length) {
+          const opt = document.createElement('option');
+          opt.value = 'building_default'; opt.textContent = '默认建筑（先画建筑更佳）';
+          indoorBuildingSelect.appendChild(opt);
+        } else {
+          for (const b of bldgs) {
+            const opt = document.createElement('option');
+            opt.value = b.id; opt.textContent = `🏢 ${b.name || b.id}`;
+            indoorBuildingSelect.appendChild(opt);
+          }
+        }
+        if (prev && [...indoorBuildingSelect.options].some(o => o.value === prev)) {
+          indoorBuildingSelect.value = prev;
+        }
+      }
+      if (activeIndoorMap && activeIndoorMap.building_id && indoorBuildingSelect.dataset.syncedId !== activeIndoorId) {
+        indoorBuildingSelect.dataset.syncedId = activeIndoorId;
+        if ([...indoorBuildingSelect.options].some(o => o.value === activeIndoorMap.building_id)) {
+          indoorBuildingSelect.value = activeIndoorMap.building_id;
+        }
+        indoorFloorSelect.value = activeIndoorMap.floor || '1F';
+      } else if (!activeIndoorId && indoorBuildingSelect.dataset.syncedId !== '') {
+        indoorBuildingSelect.dataset.syncedId = '';
+      }
+
+      // Render existing indoor floor sub-maps list + floating top-right floor bar
+      const fms = (state && state.indoor_maps) || [];
+      const fKey = `${activeIndoorId}|` + fms.map(f => `${f.indoor_id}:${f.room_count}:${f.node_count}`).join('|');
+      if (indoorFloorList.dataset.key !== fKey) {
+        indoorFloorList.dataset.key = fKey;
+        indoorFloorList.innerHTML = '';
+        if (!fms.length) {
+          indoorFloorList.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:3px 2px;">尚无室内楼层图：选好建筑和楼层后点「进入楼层」</div>';
+        } else {
+          for (const fm of fms) {
+            const row = document.createElement('div');
+            row.className = 'map-file-item' + (fm.indoor_id === activeIndoorId ? ' active' : '');
+            row.innerHTML = `<span>🏢 ${fm.building_name} · ${fm.floor}</span><span style="font-size:11px;color:var(--muted)">${fm.room_count}房 · ${fm.node_count}点</span>`;
+            row.addEventListener('click', () => selectFloor({ indoor_id: fm.indoor_id }));
+            indoorFloorList.appendChild(row);
+          }
+        }
+
+        // Update floating floor switcher bar
+        btnViewOutdoor.classList.toggle('active', !activeIndoorId);
+        floorSwitcherButtons.innerHTML = '';
+        if (activeIndoorMap) {
+          floorSwitcherLabel.textContent = `🏢 ${activeIndoorMap.building_name}`;
+          const floorsForBldg = new Set(fms.filter(f => f.building_id === activeIndoorMap.building_id).map(f => f.floor));
+          for (const fl of ['1F', '2F', '3F', '4F']) floorsForBldg.add(fl);
+          for (const fl of [...floorsForBldg]) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = fl;
+            if (fl === activeIndoorMap.floor) b.className = 'active';
+            b.addEventListener('click', () => selectFloor({
+              building_id: activeIndoorMap.building_id,
+              building_name: activeIndoorMap.building_name,
+              floor: fl,
+            }));
+            floorSwitcherButtons.appendChild(b);
+          }
+        } else {
+          floorSwitcherLabel.textContent = fms.length ? '快速进入室内：' : '';
+          for (const fm of fms.slice(0, 5)) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = `${fm.building_name} ${fm.floor}`;
+            b.addEventListener('click', () => selectFloor({ indoor_id: fm.indoor_id }));
+            floorSwitcherButtons.appendChild(b);
+          }
+        }
+      }
+    }
+
+    function selectAreaById(areaId, centerCamera = true) {
+      selectedAreaId = areaId;
+      const area = (mapData.areas || []).find(a => a.id === areaId);
+      if (!area) {
+        selectedAreaId = null;
+        areaRenameBox.classList.remove('open');
+        renderAreaList();
+        render();
+        return;
+      }
+      editAreaName.value = area.name || '';
+      editAreaKind.value = area.kind || 'building';
+      areaRenameBox.classList.add('open');
+      if (centerCamera && area.polygon && area.polygon.length) {
+        let cx = 0, cy = 0;
+        for (const pt of area.polygon) { cx += pt[0]; cy += pt[1]; }
+        camX = cx / area.polygon.length;
+        camY = cy / area.polygon.length;
+      }
+      renderAreaList();
+      render();
+    }
+
+    function renderAreaList() {
+      const areas = mapData.areas || [];
+      const key = `${selectedAreaId || ''}|` + areas.map(a => `${a.id}:${a.name}:${a.kind}:${(a.polygon || []).length}`).join('|');
+      if (areaListEl.dataset.key === key) return;
+      areaListEl.dataset.key = key;
+      areaListEl.innerHTML = '';
+      if (!areas.length) {
+        areaListEl.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:4px 2px;">暂无建筑/区域（可用测绘仪或「画建筑/地块」创建）</div>';
+        if (selectedAreaId) {
+          selectedAreaId = null;
+          areaRenameBox.classList.remove('open');
+        }
+        return;
+      }
+      if (selectedAreaId && !areas.some(a => a.id === selectedAreaId)) {
+        selectedAreaId = null;
+        areaRenameBox.classList.remove('open');
+      }
+      areas.forEach((a, idx) => {
+        const div = document.createElement('div');
+        div.className = 'area-item' + (a.id === selectedAreaId ? ' selected' : '');
+        const icon = AREA_ICON[a.kind] || '🏢';
+        const label = a.name || `未命名区域 #${idx + 1}`;
+        div.innerHTML = `<span>${icon} ${label}</span><span style="font-size:11px;color:var(--muted)">${(a.polygon || []).length}角点 · 点此命名</span>`;
+        div.addEventListener('click', () => {
+          selectAreaById(a.id, true);
+          editAreaName.focus();
+          editAreaName.select();
+        });
+        areaListEl.appendChild(div);
+      });
+    }
+
+    function selectPoiById(poiId, centerCamera = true) {
+      selectedPoiId = poiId;
+      const list = (activeIndoorId && activeIndoorMap) ? (activeIndoorMap.rooms || []) : (mapData.pois || []);
+      const p = list.find(item => item.id === poiId);
+      if (!p) {
+        selectedPoiId = null;
+        poiRenameBox.classList.remove('open');
+        renderRoomPoiManager();
+        render();
+        return;
+      }
+      editPoiName.value = p.name || '';
+      btnNavPoiDoor.style.display = p.door_node_id ? 'inline-block' : 'none';
+      poiRenameBox.classList.add('open');
+      if (centerCamera) {
+        camX = p.x; camY = p.y;
+      }
+      renderRoomPoiManager();
+      render();
+    }
+
+    function renderRoomPoiManager() {
+      // 1. Outdoor POI list inside Outdoor Mapping Window
+      const oPois = mapData.pois || [];
+      const oKey = `${selectedPoiId || ''}|` + oPois.map(p => `${p.id}:${p.name}`).join('|');
+      if (outdoorPoiListEl && outdoorPoiListEl.dataset.key !== oKey) {
+        outdoorPoiListEl.dataset.key = oKey;
+        outdoorPoiListEl.innerHTML = '';
+        if (!oPois.length) {
+          outdoorPoiListEl.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:4px 2px;">暂无室外地标（可用「放地标」或测绘仪打标）</div>';
+        } else {
+          oPois.forEach((p) => {
+            const div = document.createElement('div');
+            div.className = 'area-item';
+            div.innerHTML = `<span>${CAT_ICON[p.category] || '📍'} ${p.name}</span><span style="font-size:11px;color:var(--muted)">(${p.x.toFixed(0)}, ${p.y.toFixed(0)})</span>`;
+            div.addEventListener('click', () => {
+              camX = p.x; camY = p.y;
+              const nn = prompt('重命名室外地标（留空不改）：', p.name);
+              if (nn && nn.trim() && nn.trim() !== p.name) {
+                pushUndo();
+                p.name = nn.trim();
+                commitMapToServer(true).then(() => { showToast(true, `已重命名为「${p.name}」`); poll(); });
+              }
+              render();
+            });
+            outdoorPoiListEl.appendChild(div);
+          });
+        }
+      }
+
+      // 2. Active indoor floor room list inside Indoor Mapping Window
+      const inIndoor = Boolean(activeIndoorId && activeIndoorMap);
+      const pois = inIndoor ? (activeIndoorMap.rooms || []) : [];
+      const key = `${activeIndoorId}|${selectedPoiId || ''}|` + pois.map(p => `${p.id}:${p.name}:${p.category}:${p.door_node_id || ''}`).join('|');
+      if (roomPoiListEl.dataset.key === key) return;
+      roomPoiListEl.dataset.key = key;
+      roomPoiListEl.innerHTML = '';
+      if (!pois.length) {
+        roomPoiListEl.innerHTML = inIndoor
+          ? `<div style="font-size:11px;color:var(--muted);padding:4px 2px;">${activeIndoorMap.building_name} ${activeIndoorMap.floor} 暂无房间点（用室内建图仪右键标门口与房间）</div>`
+          : '<div style="font-size:11px;color:var(--muted);padding:4px 2px;">请先在上方选择建筑与楼层并点击「进入楼层」</div>';
+        if (selectedPoiId) {
+          selectedPoiId = null;
+          poiRenameBox.classList.remove('open');
+        }
+        return;
+      }
+      if (selectedPoiId && !pois.some(p => p.id === selectedPoiId)) {
+        selectedPoiId = null;
+        poiRenameBox.classList.remove('open');
+      }
+      pois.forEach((p) => {
+        const div = document.createElement('div');
+        div.className = 'area-item' + (p.id === selectedPoiId ? ' selected' : '');
+        const icon = CAT_ICON[p.category] || '📍';
+        const tag = p.category === 'room' ? `${p.floor || ''}房间${p.door_node_id ? '(含门口)' : ''}` : '室外地标';
+        div.innerHTML = `<span>${icon} ${p.name}</span><span style="font-size:11px;color:var(--muted)">${tag} · 点此命名</span>`;
+        div.addEventListener('click', () => {
+          selectPoiById(p.id, true);
+          editPoiName.focus();
+          editPoiName.select();
+        });
+        roomPoiListEl.appendChild(div);
+      });
+    }
+
+    function renderPoiList() {
+      const q = (poiSearch.value || '').trim().toLowerCase();
+      const outdoorPois = (mapData.pois || []).map(p => ({ ...p, _kind: 'outdoor' }));
+      const indoorRooms = ((state && state.all_rooms) || []).map(r => ({ ...r, _kind: 'room' }));
+      const combined = [...indoorRooms, ...outdoorPois].filter(p => {
+        const full = `${p.building_name || ''} ${p.floor || ''} ${p.name || ''}`.toLowerCase();
+        return !q || full.includes(q) || (p.aliases || []).some(a => a.toLowerCase().includes(q));
+      });
+      poiList.innerHTML = '';
+      for (const p of combined.slice(0, 10)) {
+        const div = document.createElement('div');
+        div.className = 'poi-item';
+        const badge = p._kind === 'room' ? `${p.building_name || ''}·${p.floor || ''}` : `(${p.x.toFixed(0)}, ${p.y.toFixed(0)})`;
+        div.innerHTML = `<span>${CAT_ICON[p.category] || '📍'} ${p.name}</span><span class="sub">${badge}</span>`;
+        div.addEventListener('click', async () => {
+          poiSearch.value = p.name;
+          if (p._kind === 'room' && p.indoor_id && p.indoor_id !== activeIndoorId) {
+            await selectFloor({ indoor_id: p.indoor_id });
+          }
+          camX = p.x; camY = p.y;
+          render();
+          startNavigation(p._kind === 'room' ? { place: p.name, indoor_id: p.indoor_id } : { place: p.name });
+        });
+        poiList.appendChild(div);
+      }
+    }
+
+    async function startNavigation(payload) {
+      try {
+        const resp = await fetch('/api/navigate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        showToast(Boolean(resp.ok && data.ok), data.detail || (resp.ok ? '已开始导航' : '导航被拒绝'));
+        await poll();
+      } catch (err) {
+        showToast(false, `请求失败: ${err.message}`);
+      }
+    }
+
+    async function poll() {
+      try {
+        const resp = await fetch('/api/state', { cache: 'no-store' });
+        if (resp.ok) updateUI(await resp.json());
+      } catch (_) {}
+    }
+
+    const modeBanner = document.getElementById('modeBanner');
+
+    function updateBanner() {
+      const rec = state && state.survey && state.survey.recorder;
+      modeBanner.classList.remove('danger-banner');
+      if (tool === 'delete') {
+        modeBanner.classList.add('danger-banner');
+        modeBanner.textContent = '🧹 橡皮擦模式：点击或按住左键拖动擦除道路、节点、建筑或地标（可点「↩ 撤销」恢复）';
+        modeBanner.style.display = 'block';
+      } else if (tool === 'draw_area') {
+        const name = document.getElementById('propAreaName').value.trim() || '新建建筑/地块';
+        modeBanner.textContent = `手动画建筑/地块「${name}」：左键依次点建筑拐角（已选 ${areaDraftManual.length} 点），双击或右键闭合`;
+        modeBanner.style.display = 'block';
+      } else if (tool === 'draw_road') {
+        modeBanner.textContent = '手动画道路：左键依次点击连路，右键或 Esc 结束当前路段';
+        modeBanner.style.display = 'block';
+      } else if (tool === 'add_poi') {
+        modeBanner.textContent = '放地标：左键点击地图放置 POI 地点';
+        modeBanner.style.display = 'block';
+      } else if (tool === 'pick_goal') {
+        modeBanner.textContent = '地图选点导航：点击园区地图任意位置，机器人将分段规划前往';
+        modeBanner.style.display = 'block';
+      } else if (rec && rec.active) {
+        if (rec.mode === 'area') {
+          const cnt = (rec.area_draft || []).length;
+          modeBanner.textContent = `实地标建筑/地块中：走到外墙拐角右键 rtk_mapper 采角点（已采 ${cnt} 点），Shift+右键自动闭合`;
+        } else if (rec.mode === 'poi') {
+          modeBanner.textContent = '实地标地标中：走到建筑门口右键 rtk_mapper 原地打地标';
+        } else {
+          modeBanner.textContent = '自动录道路中：手持 rtk_mapper 沿路走动自动连路，右键可强制打拐点';
+        }
+        modeBanner.style.display = 'block';
+      } else if (state && state.survey && state.survey.indoor_recorder && state.survey.indoor_recorder.active) {
+        const ist = state.survey.indoor_recorder.state;
+        if (ist === 'corridor') {
+          modeBanner.textContent = '📐 室内走廊自动打点中：沿走廊走动自动连线，走到房门口右键标「房间门口点」';
+        } else if (ist === 'awaiting_room_nav') {
+          modeBanner.textContent = '🚪 已标房间门口点（走廊已暂停）：请走进房间内部右键标「房间导航点」';
+        } else {
+          modeBanner.textContent = '⏸ 房间已标完（走廊自动打点已暂停）：走回走廊后手动点击「▶ 恢复走廊打点」';
+        }
+        modeBanner.style.display = 'block';
+      } else {
+        modeBanner.style.display = 'none';
+      }
+    }
+
+    function setTool(next) {
+      tool = next;
+      roadChainNodeId = null;
+      areaDraftManual = [];
+      btnClosePolyManual.style.display = 'none';
+      canvas.classList.toggle('crosshair', tool !== 'select');
+      document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
+      btnPickGoal.classList.toggle('active', tool === 'pick_goal');
+      updateBanner();
+      render();
+    }
+
+    // Event bindings
+    poiSearch.addEventListener('input', renderPoiList);
+    btnGoPoi.addEventListener('click', () => {
+      const q = poiSearch.value.trim();
+      if (!q) { showToast(false, '请输入地点名称'); return; }
+      startNavigation({ place: q });
+    });
+    btnPickGoal.addEventListener('click', () => setTool(tool === 'pick_goal' ? 'select' : 'pick_goal'));
+    document.getElementById('btnInvalidateLoc').addEventListener('click', async () => {
+      const r = await fetch('/api/localization/invalidate', { method: 'POST' });
+      const d = await r.json();
+      showToast(Boolean(r.ok && d.ok), d.detail || '已使机器人定位失效');
+      poll();
+    });
+    document.getElementById('btnRelocalize').addEventListener('click', async () => {
+      const r = await fetch('/api/relocalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeout_s: 120.0 }),
+      });
+      const d = await r.json();
+      showToast(Boolean(r.ok && d.ok), d.detail || '已发起自主重新定位');
+      poll();
+    });
+    btnCancelNav.addEventListener('click', async () => {
+      const r = await fetch('/api/navigate/cancel', { method: 'POST' });
+      const d = await r.json();
+      showToast(Boolean(r.ok && d.ok), d.detail || '已取消');
+      poll();
+    });
+    btnClearBlocked.addEventListener('click', async () => {
+      await fetch('/api/navigate/clear_blocked', { method: 'POST' });
+      showToast(true, '已清除临时封路记录');
+      poll();
+    });
+
+    async function setEditorWindow(win, notifyServer = true) {
+      activeEditorWindow = win || '';
+      editOpen = Boolean(activeEditorWindow);
+      outdoorEditorPanel.classList.toggle('open', activeEditorWindow === 'outdoor');
+      indoorEditorPanel.classList.toggle('open', activeEditorWindow === 'indoor');
+      btnOutdoorEdit.classList.toggle('active', activeEditorWindow === 'outdoor');
+      btnIndoorEdit.classList.toggle('active', activeEditorWindow === 'indoor');
+      if (!editOpen) setTool('select');
+      if (notifyServer) {
+        await fetch('/api/survey/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ open: editOpen }),
+        });
+      }
+      render();
+    }
+
+    btnOutdoorEdit.addEventListener('click', async () => {
+      const next = activeEditorWindow === 'outdoor' ? '' : 'outdoor';
+      await setEditorWindow(next, true);
+      if (next === 'outdoor' && activeIndoorId) {
+        await selectFloor({ indoor_id: '' });
+      }
+      poll();
+    });
+
+    btnIndoorEdit.addEventListener('click', async () => {
+      const next = activeEditorWindow === 'indoor' ? '' : 'indoor';
+      await setEditorWindow(next, true);
+      if (next === 'indoor' && !activeIndoorId) {
+        const bid = indoorBuildingSelect.value || 'building_default';
+        const bopt = indoorBuildingSelect.options[indoorBuildingSelect.selectedIndex];
+        const bname = bopt ? bopt.textContent.replace(/^🏢\s*/, '') : bid;
+        const fl = indoorFloorSelect.value || '1F';
+        await selectFloor({ building_id: bid, building_name: bname, floor: fl });
+      }
+      poll();
+    });
+
+    document.getElementById('btnSwitchToIndoor').addEventListener('click', () => btnIndoorEdit.click());
+    document.getElementById('btnSwitchToOutdoor').addEventListener('click', () => btnOutdoorEdit.click());
+    document.getElementById('btnCloseOutdoor').addEventListener('click', () => setEditorWindow('', true));
+    document.getElementById('btnCloseIndoor').addEventListener('click', () => setEditorWindow('', true));
+    document.getElementById('btnUndoIndoor').addEventListener('click', () => document.getElementById('btnUndo').click());
+    btnSaveIndoor.addEventListener('click', async () => {
+      if (!activeIndoorMap) { showToast(false, '请先进入一个室内楼层'); return; }
+      btnSaveIndoor.disabled = true;
+      btnSaveIndoor.textContent = '保存中...';
+      const ok = await commitIndoorToServer(true);
+      btnSaveIndoor.disabled = false;
+      if (ok) {
+        btnSaveIndoor.textContent = '✓ 已保存';
+        btnSaveIndoor.className = 'active';
+        showToast(true, `已保存 ${activeIndoorMap.building_name} ${activeIndoorMap.floor}`);
+        setTimeout(() => { btnSaveIndoor.textContent = '保存本层'; btnSaveIndoor.className = 'primary'; }, 1800);
+        poll();
+      } else {
+        btnSaveIndoor.textContent = '保存本层';
+      }
+    });
+
+    btnTheme.addEventListener('click', () => {
+      darkTheme = !darkTheme;
+      document.body.classList.toggle('dark', darkTheme);
+      btnTheme.textContent = darkTheme ? '浅色主题' : '深色主题';
+      render();
+    });
+
+    document.querySelectorAll('[data-tool]').forEach(btn => {
+      btn.addEventListener('click', () => setTool(btn.dataset.tool));
+    });
+
+    document.getElementById('btnUndo').addEventListener('click', async () => {
+      if (activeIndoorId && activeIndoorMap) {
+        if (!indoorUndoStack.length) { showToast(false, '本层没有可撤销的操作'); return; }
+        activeIndoorMap = JSON.parse(indoorUndoStack.pop());
+        await commitIndoorToServer(true);
+        showToast(true, '已撤销本层上一步编辑');
+        render();
+        return;
+      }
+      if (!undoStack.length) { showToast(false, '没有可撤销的操作'); return; }
+      mapData = JSON.parse(undoStack.pop());
+      await commitMapToServer(true);
+      showToast(true, '已撤销上一步编辑');
+      render();
+    });
+
+    btnSaveMap.addEventListener('click', async () => {
+      btnSaveMap.disabled = true;
+      btnSaveMap.textContent = '保存中...';
+      const ok = await commitActiveMapToServer(true);
+      btnSaveMap.disabled = false;
+      if (ok) {
+        btnSaveMap.textContent = '✓ 已保存';
+        btnSaveMap.className = 'active';
+        const targetLabel = activeIndoorMap
+          ? `${activeIndoorMap.building_name} ${activeIndoorMap.floor}`
+          : mapFileSelect.value;
+        showToast(true, `已保存到 ${targetLabel}（${lastSavedAt}）`);
+        clearTimeout(btnSaveMap._t);
+        btnSaveMap._t = setTimeout(() => {
+          btnSaveMap.textContent = '保存';
+          btnSaveMap.className = 'primary';
+        }, 1800);
+        poll();
+      } else {
+        btnSaveMap.textContent = '保存';
+      }
+    });
+
+    async function applyAreaRename() {
+      if (!selectedAreaId) return;
+      const area = (mapData.areas || []).find(a => a.id === selectedAreaId);
+      if (!area) return;
+      const newName = editAreaName.value.trim() || '新建区域';
+      const newKind = editAreaKind.value || 'building';
+      pushUndo();
+      area.name = newName;
+      area.kind = newKind;
+      const ok = await commitMapToServer(true);
+      if (ok) {
+        showToast(true, `已将区域命名为「${newName}」并保存`);
+        areaListEl.dataset.key = '';
+        renderAreaList();
+        render();
+      }
+    }
+    document.getElementById('btnApplyAreaRename').addEventListener('click', applyAreaRename);
+    editAreaName.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyAreaRename(); });
+    document.getElementById('btnDeleteSelectedArea').addEventListener('click', async () => {
+      if (!selectedAreaId) return;
+      const area = (mapData.areas || []).find(a => a.id === selectedAreaId);
+      if (!area) return;
+      pushUndo();
+      mapData.areas = (mapData.areas || []).filter(a => a.id !== selectedAreaId);
+      const oldName = area.name || area.id;
+      selectedAreaId = null;
+      areaRenameBox.classList.remove('open');
+      const ok = await commitMapToServer(true);
+      if (ok) {
+        showToast(true, `已删除区域「${oldName}」`);
+        areaListEl.dataset.key = '';
+        renderAreaList();
+        render();
+      }
+    });
+
+    mapFileSelect.addEventListener('change', async () => {
+      const resp = await fetch('/api/map/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: mapFileSelect.value }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.detail || '切换完成');
+      poll();
+    });
+
+    document.getElementById('btnNewMap').addEventListener('click', async () => {
+      const name = prompt('输入新园区地图文件名（例如 campus_north）：');
+      if (!name || !name.trim()) return;
+      const resp = await fetch('/api/map/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: name.trim(), name: name.trim() }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.detail || '已新建');
+      poll();
+    });
+
+    document.getElementById('btnResetMap').addEventListener('click', async () => {
+      const activeName = (state && state.active_file) || mapFileSelect.value || '当前地图';
+      if (!confirm(`确定清空「${activeName}」的所有道路、建筑与地标吗？（清空后仍可点「↩ 撤销」恢复）`)) return;
+      pushUndo();
+      roadChainNodeId = null;
+      areaDraftManual = [];
+      btnClosePolyManual.style.display = 'none';
+      const resp = await fetch('/api/map/reset', { method: 'POST' });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.detail || '已重置地图');
+      poll();
+    });
+
+    async function sendSurveyStart(toastMsg) {
+      await fetch('/api/survey/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: document.getElementById('surveyMode').value,
+          road_class: document.getElementById('propRoadClass').value,
+          road_name: document.getElementById('propRoadName').value,
+          area_kind: document.getElementById('propAreaKind').value,
+          area_name: document.getElementById('propAreaName').value,
+          poi_category: document.getElementById('propPoiCat').value,
+          poi_name: document.getElementById('propPoiName').value,
+        }),
+      });
+      if (toastMsg) showToast(true, toastMsg);
+      poll();
+    }
+
+    btnToggleRecord.addEventListener('click', async () => {
+      const active = state && state.survey && state.survey.recorder && state.survey.recorder.active;
+      if (active) {
+        await fetch('/api/survey/stop', { method: 'POST' });
+        showToast(true, '已停止录制并保存地图');
+        poll();
+      } else {
+        await sendSurveyStart('已开启测绘录制，手持 rtk_mapper 走动即可建图');
+      }
+    });
+
+    const MODE_LABELS = { road: '录道路', area: '标建筑/地块', poi: '标地标 POI' };
+    document.getElementById('surveyMode').addEventListener('change', async () => {
+      const active = state && state.survey && state.survey.recorder && state.survey.recorder.active;
+      if (active) {
+        const m = document.getElementById('surveyMode').value;
+        await sendSurveyStart(`已实时切换录制模式为：${MODE_LABELS[m] || m}`);
+      }
+    });
+    for (const id of ['propRoadClass', 'propRoadName', 'propAreaKind', 'propAreaName', 'propPoiCat', 'propPoiName']) {
+      document.getElementById(id).addEventListener('change', async () => {
+        const active = state && state.survey && state.survey.recorder && state.survey.recorder.active;
+        if (active) await sendSurveyStart('');
+      });
+    }
+
+    document.getElementById('btnFinishArea').addEventListener('click', async () => {
+      const resp = await fetch('/api/survey/finish_area', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: document.getElementById('propAreaName').value || '新建区域',
+          kind: document.getElementById('propAreaKind').value,
+        }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.ok ? `已生成地块「${d.area.name}」` : (d.detail || '顶点数不足'));
+      poll();
+    });
+
+    document.getElementById('btnDropPoiHere').addEventListener('click', async () => {
+      const name = document.getElementById('propPoiName').value.trim() || prompt('输入地标名称（如 实验室、饭堂）：');
+      if (!name) return;
+      const resp = await fetch('/api/survey/drop_poi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          category: document.getElementById('propPoiCat').value,
+        }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.ok ? `已添加地标「${d.poi.name}」` : (d.detail || '添加失败'));
+      poll();
+    });
+
+    btnClosePolyManual.addEventListener('click', async () => {
+      if (areaDraftManual.length < 3) return;
+      pushUndo();
+      mapData.areas.push({
+        id: shortId('a'),
+        name: document.getElementById('propAreaName').value.trim() || '新建区域',
+        kind: document.getElementById('propAreaKind').value,
+        polygon: areaDraftManual,
+      });
+      areaDraftManual = [];
+      btnClosePolyManual.style.display = 'none';
+      await commitMapToServer(true);
+      showToast(true, '已保存手绘地块');
+      render();
+    });
+
+    document.getElementById('btnCenterRobot').addEventListener('click', async () => {
+      if (!state || !state.robot || !state.robot.has_pose) {
+        showToast(false, '机器人当前未定位，请先点击「自主重新定位」');
+        return;
+      }
+      const rx = Number(state.robot.x);
+      const ry = Number(state.robot.y);
+      const targetIid = String(state.robot.current_indoor_id || '');
+      if (targetIid !== String(activeIndoorId || '')) {
+        await selectFloor({ indoor_id: targetIid });
+      }
+      camX = rx;
+      camY = ry;
+      if (targetIid && pxPerM < 14) {
+        pxPerM = 18;
+      } else if (!targetIid && pxPerM < 5) {
+        pxPerM = 8;
+      }
+      render();
+      const locLabel = targetIid
+        ? `${state.robot.current_building_name || ''}${state.robot.current_floor || ''}`
+        : '室外园区';
+      showToast(true, `已居中至机器人位置：${locLabel} (${rx.toFixed(1)}, ${ry.toFixed(1)})`);
+    });
+    document.getElementById('btnCenterMapper').addEventListener('click', () => {
+      const hs = state && state.survey && state.survey.holders;
+      if (hs && hs.length && hs[0].fix && hs[0].fix.valid) {
+        camX = hs[0].fix.east; camY = hs[0].fix.north; render();
+      } else {
+        showToast(false, '当前未检测到手持 rtk_mapper 且定位有效的玩家');
+      }
+    });
+    document.getElementById('btnCenterIndoor').addEventListener('click', () => {
+      const hs = state && state.survey && state.survey.indoor_holders;
+      if (hs && hs.length && hs[0].pose) {
+        camX = Number(hs[0].pose.east || 0); camY = Number(hs[0].pose.north || 0); render();
+      } else {
+        showToast(false, '当前未检测到手持 indoor_mapper（室内建图仪）的玩家');
+      }
+    });
+
+    // Indoor floor switching & mapper Web UI controls
+    function enterSelectedBuildingFloor() {
+      const bid = indoorBuildingSelect.value || 'building_default';
+      const bopt = indoorBuildingSelect.options[indoorBuildingSelect.selectedIndex];
+      const bname = bopt ? bopt.textContent.replace(/^🏢\s*/, '') : bid;
+      const fl = indoorFloorSelect.value || '1F';
+      return selectFloor({ building_id: bid, building_name: bname, floor: fl });
+    }
+    btnViewOutdoor.addEventListener('click', () => selectFloor({ indoor_id: '' }));
+    document.getElementById('btnEnterFloor').addEventListener('click', enterSelectedBuildingFloor);
+    indoorBuildingSelect.addEventListener('change', () => {
+      indoorFloorSelect.value = '1F';
+      enterSelectedBuildingFloor();
+    });
+    indoorFloorSelect.addEventListener('change', enterSelectedBuildingFloor);
+    document.getElementById('btnIndoorResetFloor').addEventListener('click', async () => {
+      if (!activeIndoorId || !activeIndoorMap) {
+        showToast(false, '请先选择一个室内楼层再重置');
+        return;
+      }
+      const label = `${activeIndoorMap.building_name} ${activeIndoorMap.floor}`;
+      if (!confirm(`确定清空室内楼层「${label}」的走廊与房间点吗？（不影响室外地图与其他楼层）`)) return;
+      pushUndo();
+      const resp = await fetch('/api/indoor/reset_floor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ indoor_id: activeIndoorId }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.detail || '已重置本层');
+      poll();
+    });
+    document.getElementById('btnIndoorAnchor').addEventListener('click', async () => {
+      const bid = indoorBuildingSelect.value || '';
+      const fl = indoorFloorSelect.value || '1F';
+      const resp = await fetch('/api/indoor/anchor_entrance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ building_id: bid, floor: fl }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.ok ? `已在 ${fl} 设置出口锚点并开始走廊自动打点` : (d.detail || '操作失败'));
+      poll();
+    });
+    document.getElementById('btnIndoorMarkDoor').addEventListener('click', async () => {
+      const resp = await fetch('/api/indoor/mark_room_door', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          building_id: indoorBuildingSelect.value || '',
+          floor: indoorFloorSelect.value || '1F',
+          room_name: document.getElementById('indoorRoomName').value.trim(),
+        }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.ok ? '已标房间门口点并暂停走廊打点，请进房标「房间导航点」' : (d.detail || '操作失败'));
+      poll();
+    });
+    document.getElementById('btnIndoorMarkNav').addEventListener('click', async () => {
+      const resp = await fetch('/api/indoor/mark_room_nav', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          building_id: indoorBuildingSelect.value || '',
+          floor: indoorFloorSelect.value || '1F',
+          room_name: document.getElementById('indoorRoomName').value.trim(),
+        }),
+      });
+      const d = await resp.json();
+      if (resp.ok && d.ok) {
+        document.getElementById('indoorRoomName').value = '';
+        const rname = (d.room && d.room.name) || '新房间';
+        showToast(true, `已标房间导航点「${rname}」并关联门口（回走廊后点「恢复走廊打点」）`);
+      } else {
+        showToast(false, d.detail || '操作失败');
+      }
+      poll();
+    });
+    btnIndoorCorridorToggle.addEventListener('click', async () => {
+      const curState = state && state.survey && state.survey.indoor_recorder && state.survey.indoor_recorder.state;
+      const action = curState === 'corridor' ? 'pause' : 'resume';
+      const resp = await fetch('/api/indoor/corridor_toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          building_id: indoorBuildingSelect.value || '',
+          floor: indoorFloorSelect.value || '1F',
+        }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), action === 'pause' ? '已暂停走廊自动打点' : '已恢复走廊自动打点');
+      poll();
+    });
+    document.getElementById('btnIndoorStop').addEventListener('click', async () => {
+      await fetch('/api/indoor/corridor_toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' }),
+      });
+      showToast(true, '已结束室内建图');
+      poll();
+    });
+
+    // Room / POI rename & quick navigate controls
+    async function applyPoiRename() {
+      if (!selectedPoiId) return;
+      const inIndoor = Boolean(activeIndoorId && activeIndoorMap);
+      const list = inIndoor ? (activeIndoorMap.rooms || []) : (mapData.pois || []);
+      const p = list.find(item => item.id === selectedPoiId);
+      if (!p) return;
+      const newName = editPoiName.value.trim();
+      if (!newName) { showToast(false, '名称不能为空'); return; }
+      pushUndo();
+      p.name = newName;
+      const nList = inIndoor ? (activeIndoorMap.nodes || []) : (mapData.nodes || []);
+      const nMap = Object.fromEntries(nList.map(n => [n.id, n]));
+      if (p.node_id && nMap[p.node_id]) nMap[p.node_id].label = newName;
+      if (p.door_node_id && nMap[p.door_node_id]) nMap[p.door_node_id].label = `${newName}门口`;
+      const ok = await commitActiveMapToServer(true);
+      if (ok) {
+        showToast(true, `已命名为「${newName}」并保存`);
+        roomPoiListEl.dataset.key = '';
+        renderRoomPoiManager();
+        renderPoiList();
+        render();
+      }
+    }
+    document.getElementById('btnApplyPoiRename').addEventListener('click', applyPoiRename);
+    editPoiName.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyPoiRename(); });
+    document.getElementById('btnNavPoiNav').addEventListener('click', () => {
+      const inIndoor = Boolean(activeIndoorId && activeIndoorMap);
+      const list = inIndoor ? (activeIndoorMap.rooms || []) : (mapData.pois || []);
+      const p = list.find(item => item.id === selectedPoiId);
+      if (p) startNavigation(inIndoor ? { place: p.name, indoor_id: activeIndoorId } : { place: p.name });
+    });
+    btnNavPoiDoor.addEventListener('click', () => {
+      const inIndoor = Boolean(activeIndoorId && activeIndoorMap);
+      const list = inIndoor ? (activeIndoorMap.rooms || []) : (mapData.pois || []);
+      const p = list.find(item => item.id === selectedPoiId);
+      if (p && p.door_node_id) {
+        startNavigation(inIndoor
+          ? { place: p.name, indoor_id: activeIndoorId, node_id: '__door__' }
+          : { place: p.name, node_id: '__door__' });
+      }
+    });
+    document.getElementById('btnDeleteSelectedPoi').addEventListener('click', async () => {
+      if (!selectedPoiId) return;
+      const inIndoor = Boolean(activeIndoorId && activeIndoorMap);
+      const list = inIndoor ? (activeIndoorMap.rooms || []) : (mapData.pois || []);
+      const p = list.find(item => item.id === selectedPoiId);
+      if (!p) return;
+      pushUndo();
+      if (inIndoor) {
+        activeIndoorMap.rooms = list.filter(item => item.id !== selectedPoiId);
+      } else {
+        mapData.pois = list.filter(item => item.id !== selectedPoiId);
+      }
+      const oldName = p.name;
+      selectedPoiId = null;
+      poiRenameBox.classList.remove('open');
+      const ok = await commitActiveMapToServer(true);
+      if (ok) {
+        showToast(true, `已删除「${oldName}」`);
+        roomPoiListEl.dataset.key = '';
+        renderRoomPoiManager();
+        renderPoiList();
+        render();
+      }
+    });
+    document.getElementById('btnZoomIn').addEventListener('click', () => { pxPerM = Math.min(40, pxPerM * 1.25); render(); });
+    document.getElementById('btnZoomOut').addEventListener('click', () => { pxPerM = Math.max(0.8, pxPerM / 1.25); render(); });
+
+    // Canvas mouse interactions
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      pxPerM = Math.max(0.8, Math.min(40, pxPerM * f));
+      render();
+    }, { passive: false });
+
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      roadChainNodeId = null;
+      if (areaDraftManual.length >= 3) btnClosePolyManual.click();
+      else { areaDraftManual = []; btnClosePolyManual.style.display = 'none'; }
+      render();
+    });
+
+    canvas.addEventListener('mousedown', async (e) => {
+      if (e.button !== 0) return;
+      const dpr = window.devicePixelRatio || 1;
+      const sx = e.clientX * dpr, sy = e.clientY * dpr;
+      const [wx, wy] = s2w(sx, sy);
+      const snapM = Math.max(1.2, 12 / pxPerM);
+
+      if (tool === 'pick_goal') {
+        setTool('select');
+        await startNavigation({ x: wx, y: wy });
+        return;
+      }
+
+      if (editOpen && tool === 'select') {
+        if (activeEditorWindow === 'indoor') {
+          const hitBldg = [...(mapData.areas || [])].reverse().find(
+            a => a.kind === 'building' && pointInPoly(wx, wy, a.polygon || [])
+          );
+          if (hitBldg && (!activeIndoorMap || activeIndoorMap.building_id !== hitBldg.id)) {
+            const existingFloors = ((state && state.indoor_maps) || []).filter(f => f.building_id === hitBldg.id);
+            const fl = existingFloors.length ? existingFloors[0].floor : '1F';
+            await selectFloor({
+              building_id: hitBldg.id,
+              building_name: hitBldg.name || hitBldg.id,
+              floor: fl,
+            });
+            return;
+          }
+        } else {
+          const hit = findNodeNear(wx, wy, snapM);
+          if (hit) {
+            pushUndo();
+            dragNodeId = hit.id;
+            return;
+          }
+          const hitArea = [...(mapData.areas || [])].reverse().find(a => pointInPoly(wx, wy, a.polygon || []));
+          if (hitArea) {
+            selectAreaById(hitArea.id, false);
+            showToast(true, `已选中区域「${hitArea.name || '未命名'}」，可在左侧面板重命名`);
+            return;
+          }
+        }
+      }
+
+      if (editOpen && tool === 'draw_road') {
+        pushUndo();
+        let target = findNodeNear(wx, wy, snapM);
+        if (!target) {
+          target = { id: shortId('n'), x: Number(wx.toFixed(3)), y: Number(wy.toFixed(3)), kind: 'waypoint' };
+          mapData.nodes.push(target);
+        }
+        if (roadChainNodeId && roadChainNodeId !== target.id) {
+          const rc = document.getElementById('propRoadClass').value;
+          mapData.edges.push({
+            id: shortId('e'),
+            from: roadChainNodeId,
+            to: target.id,
+            name: document.getElementById('propRoadName').value.trim(),
+            road_class: rc,
+            width_m: rc === 'primary' ? 4.5 : 3.0,
+            weight: 1.0,
+            bidirectional: true,
+          });
+        }
+        roadChainNodeId = target.id;
+        await commitMapToServer(true);
+        render();
+        return;
+      }
+
+      if (editOpen && tool === 'draw_area') {
+        areaDraftManual.push([Number(wx.toFixed(3)), Number(wy.toFixed(3))]);
+        if (areaDraftManual.length >= 3) btnClosePolyManual.style.display = 'block';
+        updateBanner();
+        render();
+        return;
+      }
+
+      if (editOpen && tool === 'add_poi') {
+        const name = document.getElementById('propPoiName').value.trim() || prompt('输入地标名称（如 实验室、饭堂）：');
+        if (!name) return;
+        pushUndo();
+        const near = findNodeNear(wx, wy, 15.0);
+        mapData.pois.push({
+          id: shortId('p'),
+          name,
+          aliases: [],
+          category: document.getElementById('propPoiCat').value,
+          x: Number(wx.toFixed(3)),
+          y: Number(wy.toFixed(3)),
+          node_id: near ? near.id : '',
+        });
+        await commitMapToServer(true);
+        showToast(true, `已放置地标「${name}」`);
+        renderPoiList();
+        render();
+        return;
+      }
+
+      if (editOpen && tool === 'delete') {
+        erasing = true;
+        erasedInStroke = 0;
+        const eraseR = Math.max(1.4, 14 / pxPerM);
+        const hitLabel = eraseAt(wx, wy, eraseR);
+        if (hitLabel) {
+          showToast(true, `已擦除 ${hitLabel}`);
+          renderPoiList();
+          render();
+        }
+        return;
+      }
+
+      panning = true;
+      panStart = { x: e.clientX, y: e.clientY, cx: camX, cy: camY };
+    });
+
+    canvas.addEventListener('dblclick', (e) => {
+      if (editOpen && tool === 'draw_area' && areaDraftManual.length >= 3) {
+        e.preventDefault();
+        btnClosePolyManual.click();
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      const dpr = window.devicePixelRatio || 1;
+      const [wx, wy] = s2w(e.clientX * dpr, e.clientY * dpr);
+      mouseWorld = [wx, wy];
+      coordHud.textContent = `campus_rtk: (${wx.toFixed(2)}, ${wy.toFixed(2)}) m · zoom ${pxPerM.toFixed(1)} px/m`;
+
+      if (dragNodeId) {
+        const n = (mapData.nodes || []).find(item => item.id === dragNodeId);
+        if (n) { n.x = Number(wx.toFixed(3)); n.y = Number(wy.toFixed(3)); render(); }
+        return;
+      }
+      if (erasing && editOpen && tool === 'delete') {
+        const eraseR = Math.max(1.4, 14 / pxPerM);
+        const hitLabel = eraseAt(wx, wy, eraseR);
+        if (hitLabel) renderPoiList();
+        render();
+        return;
+      }
+      if (panning && panStart) {
+        camX = panStart.cx - (e.clientX - panStart.x) / pxPerM;
+        camY = panStart.cy + (e.clientY - panStart.y) / pxPerM;
+        render();
+      } else if (editOpen && (tool === 'delete' || (tool === 'draw_area' && areaDraftManual.length > 0))) {
+        render();
+      }
+    });
+
+    window.addEventListener('mouseup', async () => {
+      if (dragNodeId) {
+        dragNodeId = null;
+        await commitMapToServer(true);
+      }
+      if (erasing) {
+        erasing = false;
+        if (erasedInStroke > 0) {
+          const cnt = erasedInStroke;
+          erasedInStroke = 0;
+          await commitActiveMapToServer(true);
+          showToast(true, `橡皮擦已擦除 ${cnt} 个要素（可点「↩ 撤销」恢复）`);
+          render();
+        }
+      }
+      panning = false;
+      panStart = null;
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        roadChainNodeId = null;
+        areaDraftManual = [];
+        btnClosePolyManual.style.display = 'none';
+        if (tool === 'pick_goal') setTool('select');
+        render();
+      }
+    });
+
+    resize();
+    poll();
+    setInterval(poll, 400);
+  </script>
+</body>
+</html>

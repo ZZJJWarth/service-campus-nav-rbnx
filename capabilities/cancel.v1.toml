@@ -1,0 +1,11 @@
+[contract]
+id = "robonix/skill/outdoor_navigation/cancel"
+version = "1"
+kind = "skill"
+idl = "outdoor_navigation/srv/CancelOutdoorNavigation.srv"
+
+[mode]
+type = "rpc"
+
+[semantics]
+user_invocable = true

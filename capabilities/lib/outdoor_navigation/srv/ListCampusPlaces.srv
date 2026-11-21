@@ -1,0 +1,4 @@
+# List named places (POIs) available in the active campus map.
+---
+string campus_id
+string places_json
