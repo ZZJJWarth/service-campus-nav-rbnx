@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "indoor_id": "a_dc93d868__1F",
+  "building_id": "a_dc93d868",
+  "building_name": "home",
+  "floor": "1F",
+  "elevation_y": 71.0,
+  "entrances": [
+    {
+      "id": "ent_33bba1ec",
+      "name": "home1F出口",
+      "node_id": "in_3ccdf92e",
+      "outdoor_node_id": "n_174aeb3f",
+      "x": 9.998,
+      "y": 152.119
+    }
+  ],
+  "nodes": [
+    {
+      "id": "in_d73e9195",
+      "x": 10.429,
+      "y": 152.321,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "1F",
+      "label": "1F-房间1门口"
+    },
+    {
+      "id": "in_3ccdf92e",
+      "x": 9.998,
+      "y": 152.119,
+      "kind": "entrance",
+      "indoor": true,
+      "floor": "1F",
+      "label": "home1F出口"
+    },
+    {
+      "id": "in_7c3dc166",
+      "x": 6.589,
+      "y": 152.139,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "1F"
+    },
+    {
+      "id": "in_f90fca16",
+      "x": 3.567,
+      "y": 152.155,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "1F"
+    }
+  ],
+  "edges": [
+    {
+      "id": "ie_d97de6ed",
+      "from": "in_3ccdf92e",
+      "to": "in_7c3dc166",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_4cd31df6",
+      "from": "in_7c3dc166",
+      "to": "in_f90fca16",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    }
+  ],
+  "rooms": [],
+  "elevators": [],
+  "stairs": [],
+  "markers": []
+}

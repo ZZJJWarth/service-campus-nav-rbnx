@@ -224,6 +224,13 @@ class ElevatorClient:
                 cy = max(ymin + 0.75, min(ymax - 0.75, cand_y))
         return round(cx, 3), round(cy, 3)
 
+    def shaft_center_enu_xy(self) -> tuple[float, float] | None:
+        for fkey in self.floors:
+            pt = self.safe_cabin_interior_xy(fkey)
+            if pt is not None:
+                return pt
+        return None
+
     def is_xy_safely_inside_cabin(
         self, floor_label: str, cx: float, cy: float, *, margin_m: float = 0.45
     ) -> bool:
@@ -574,3 +581,514 @@ class ElevatorClient:
             self.move_cabin(fkey, cancel_event=cancel_event, timeout_s=timeout_s)
         self.set_door(fkey, True, cancel_event=cancel_event, timeout_s=timeout_s)
         return fkey
+
+
+class NativeElevatorClient:
+    """Controls one zero-command-block native Forge Mod elevator via pure IoT commands.
+
+    Design boundary (Zero-Coordinate Runtime):
+    - NEVER auto-discovers elevators or receives any world coordinates, cabin_bounds,
+      door_region, or elevation_y from 25577 at runtime.
+    - All geometric information (`cabin_bounds_enu`, `door_bounds_enu`, `cabin_xy`,
+      `door_xy`, `elevation_y`) comes STRICTLY from the offline `IndoorFloorMap`
+      recorded during offline mapping (`indoor_mapper` right-click bind).
+    - Respects doorway light-curtain safety (`door_blocked: true`): waits & retries
+      cleanly instead of forcing doors shut on obstacles.
+    """
+
+    def __init__(
+        self,
+        elevator_id: str,
+        *,
+        offline_floors: dict[str, dict[str, Any]] | None = None,
+        dimension: str = "minecraft:overworld",
+        host: str = "127.0.0.1",
+        port: int = 25577,
+        transport: Any = None,
+        wait_timeout_s: float = 90.0,
+        poll_interval_s: float = 0.15,
+    ) -> None:
+        self.elevator_id = str(elevator_id or "").strip()
+        if not self.elevator_id:
+            raise ValueError("native elevator missing 'elevator_id'")
+        self.dimension = str(dimension or "minecraft:overworld")
+        self.moving_cabin = True
+        self.wait_timeout_s = float(wait_timeout_s)
+        self.poll_interval_s = max(0.02, float(poll_interval_s))
+        self._client = transport if transport is not None else _TcpJsonClient(host, port)
+        self._lock = threading.RLock()
+
+        self.floors: dict[str, dict[str, Any]] = {}
+        self._alias_to_key: dict[str, str] = {}
+        self._iot_floors: list[str] = []
+        self._last_floor: str = ""
+        self._last_door_open: bool = False
+        self._last_door_blocked: bool = False
+        self._last_error: str = ""
+        for fl, geom in (offline_floors or {}).items():
+            if isinstance(geom, dict):
+                self.update_offline_floor(fl, **geom)
+
+    def _register_floor_aliases(self, label: str) -> None:
+        nt = _norm_floor_token(label)
+        if nt:
+            self._alias_to_key[nt] = label
+        m = re.fullmatch(r"(\d+)f", nt)
+        if m:
+            num = m.group(1)
+            for alias in (num, f"{num}楼", f"{num}层", f"floor{num}"):
+                self._alias_to_key[_norm_floor_token(alias)] = label
+
+    def update_offline_floor(
+        self,
+        floor_label: str,
+        *,
+        cabin_bounds_enu: tuple[float, float, float, float] | list[float] | None = None,
+        door_bounds_enu: tuple[float, float, float, float] | list[float] | None = None,
+        cabin_xy: tuple[float, float] | list[float] | None = None,
+        door_xy: tuple[float, float] | list[float] | None = None,
+        elevation_y: float | None = None,
+    ) -> None:
+        label = str(floor_label or "").strip()
+        if not label:
+            return
+        with self._lock:
+            cur = dict(self.floors.get(label) or {"label": label})
+            if cabin_bounds_enu is not None and len(cabin_bounds_enu) >= 4:
+                cur["cabin_bounds_enu"] = tuple(float(v) for v in cabin_bounds_enu[:4])
+            if door_bounds_enu is not None and len(door_bounds_enu) >= 4:
+                cur["door_bounds_enu"] = tuple(float(v) for v in door_bounds_enu[:4])
+            if cabin_xy is not None and len(cabin_xy) >= 2:
+                cur["cabin_xy"] = (float(cabin_xy[0]), float(cabin_xy[1]))
+            if door_xy is not None and len(door_xy) >= 2:
+                cur["door_xy"] = (float(door_xy[0]), float(door_xy[1]))
+            if elevation_y is not None:
+                cur["elevation_y"] = float(elevation_y)
+            self.floors[label] = cur
+            self._register_floor_aliases(label)
+
+    def _update_iot_state(self, res: dict[str, Any]) -> None:
+        with self._lock:
+            if res.get("current_floor") is not None:
+                self._last_floor = str(res.get("current_floor") or "")
+            if "door_open" in res:
+                self._last_door_open = bool(res.get("door_open"))
+            if "door_blocked" in res:
+                self._last_door_blocked = bool(res.get("door_blocked"))
+            floors_raw = res.get("floors")
+            if isinstance(floors_raw, list):
+                labels = [str(f).strip() for f in floors_raw if isinstance(f, str) and str(f).strip()]
+                if labels:
+                    self._iot_floors = labels
+                    for lbl in labels:
+                        self._register_floor_aliases(lbl)
+
+    def resolve_floor(self, floor_label: str) -> str | None:
+        nt = _norm_floor_token(floor_label)
+        hit = self._alias_to_key.get(nt)
+        if hit:
+            return hit
+        m = re.search(r"(\d+)f$", nt)
+        if m:
+            hit = self._alias_to_key.get(f"{m.group(1)}f")
+            if hit:
+                return hit
+        clean = str(floor_label or "").strip()
+        return clean or None
+
+    def floor_label(self, floor_key: str) -> str:
+        return str(floor_key or "")
+
+    def supports_floor(self, floor_label: str) -> bool:
+        nt = _norm_floor_token(floor_label)
+        return nt in self._alias_to_key
+
+    def floor_elevation_y(self, floor_label: str) -> float | None:
+        fkey = self.resolve_floor(floor_label)
+        if not fkey or fkey not in self.floors:
+            return None
+        val = self.floors[fkey].get("elevation_y")
+        return float(val) if val is not None else None
+
+    def _usable_cabin_enu_box(self, floor_label: str) -> tuple[float, float, float, float] | None:
+        fkey = self.resolve_floor(floor_label)
+        if not fkey or fkey not in self.floors:
+            return None
+        box = self.floors[fkey].get("cabin_bounds_enu")
+        if isinstance(box, (list, tuple)) and len(box) >= 4:
+            return (float(box[0]), float(box[1]), float(box[2]), float(box[3]))
+        return None
+
+    def safe_cabin_interior_xy(self, floor_label: str) -> tuple[float, float] | None:
+        box = self._usable_cabin_enu_box(floor_label)
+        if box is not None:
+            xmin, xmax, ymin, ymax = box
+            return round(0.5 * (xmin + xmax), 3), round(0.5 * (ymin + ymax), 3)
+        fkey = self.resolve_floor(floor_label)
+        if fkey and fkey in self.floors and self.floors[fkey].get("cabin_xy") is not None:
+            cx, cy = self.floors[fkey]["cabin_xy"]
+            return round(float(cx), 3), round(float(cy), 3)
+        return None
+
+    def is_xy_safely_inside_cabin(
+        self, floor_label: str, cx: float, cy: float, *, margin_m: float = 0.45
+    ) -> bool:
+        box = self._usable_cabin_enu_box(floor_label)
+        if box is None:
+            # Fallback if user manually mapped without right-click bounds: within 0.65 m of cabin_xy
+            pt = self.safe_cabin_interior_xy(floor_label)
+            if pt is None:
+                return True
+            return ((cx - pt[0]) ** 2 + (cy - pt[1]) ** 2) ** 0.5 <= 0.65
+        xmin, xmax, ymin, ymax = box
+        m = max(0.0, float(margin_m))
+        return (xmin + m) <= cx <= (xmax - m) and (ymin + m) <= cy <= (ymax - m)
+
+    def is_xy_safely_outside_cabin(
+        self, floor_label: str, cx: float, cy: float, *, margin_m: float = 0.5
+    ) -> bool:
+        fkey = self.resolve_floor(floor_label)
+        if not fkey or fkey not in self.floors:
+            return True
+        fcfg = self.floors[fkey]
+        cbox = fcfg.get("cabin_bounds_enu")
+        dbox = fcfg.get("door_bounds_enu")
+        if not cbox and not dbox:
+            return True
+        boxes = [b for b in (cbox, dbox) if isinstance(b, (list, tuple)) and len(b) >= 4]
+        xmin = min(float(b[0]) for b in boxes)
+        xmax = max(float(b[1]) for b in boxes)
+        ymin = min(float(b[2]) for b in boxes)
+        ymax = max(float(b[3]) for b in boxes)
+        m = max(0.0, float(margin_m))
+        return cx < (xmin - m) or cx > (xmax + m) or cy < (ymin - m) or cy > (ymax + m)
+
+    def _status(self) -> dict[str, Any]:
+        res = self._client.request({
+            "cmd": "elevator_status",
+            "dimension": self.dimension,
+            "elevator_id": self.elevator_id,
+        })
+        self._update_iot_state(res)
+        return res
+
+    def _sleep(self, sec: float, cancel_event: threading.Event | None) -> None:
+        if cancel_event is not None:
+            cancel_event.wait(sec)
+        else:
+            time.sleep(sec)
+
+    def current_floor(self) -> str:
+        st = self._status()
+        return str(st.get("current_floor") or "")
+
+    def is_door_open(self, floor_label: str) -> bool:
+        fkey = self.resolve_floor(floor_label)
+        if not fkey:
+            raise ValueError(f"unknown elevator floor: {floor_label!r}")
+        st = self._status()
+        return str(st.get("state") or "") == "IDLE" and str(st.get("current_floor") or "") == fkey and bool(st.get("door_open"))
+
+    def set_door(
+        self,
+        floor_label: str,
+        opened: bool,
+        cancel_event: threading.Event | None = None,
+        timeout_s: float | None = None,
+    ) -> None:
+        fkey = self.resolve_floor(floor_label)
+        if not fkey:
+            raise ValueError(f"unknown elevator floor: {floor_label!r}")
+        eff_timeout = float(timeout_s if timeout_s is not None else self.wait_timeout_s)
+        deadline = time.monotonic() + eff_timeout
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("door operation canceled")
+            res = self._client.request({
+                "cmd": "elevator_door",
+                "dimension": self.dimension,
+                "elevator_id": self.elevator_id,
+                "floor": fkey,
+                "open": bool(opened),
+            })
+            self._update_iot_state(res)
+            if opened:
+                log.info("native elevator %s door %s -> open", self.elevator_id, fkey)
+                return
+            blocked = bool(res.get("door_blocked", False)) or (res.get("action_accepted") is False)
+            if not blocked and not bool(res.get("door_open", False)):
+                log.info("native elevator %s door %s -> closed", self.elevator_id, fkey)
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"电梯 {self.elevator_id} 门口防夹传感器持续检测到障碍物，等待关门超时")
+            log.warning("native elevator %s doorway blocked by obstacle, waiting before retrying close...", self.elevator_id)
+            self._sleep(min(0.4, max(0.05, self.poll_interval_s * 2.0)), cancel_event)
+
+    def close_door(
+        self,
+        floor_label: str,
+        cancel_event: threading.Event | None = None,
+        timeout_s: float | None = None,
+    ) -> None:
+        self.set_door(floor_label, False, cancel_event=cancel_event, timeout_s=timeout_s)
+
+    def ensure_all_doors_closed(
+        self,
+        cancel_event: threading.Event | None = None,
+        timeout_s: float | None = None,
+    ) -> None:
+        eff_timeout = float(timeout_s if timeout_s is not None else self.wait_timeout_s)
+        deadline = time.monotonic() + eff_timeout
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("elevator operation canceled")
+            res = self._client.request({
+                "cmd": "elevator_door",
+                "dimension": self.dimension,
+                "elevator_id": self.elevator_id,
+                "open": False,
+            })
+            self._update_iot_state(res)
+            blocked = bool(res.get("door_blocked", False)) or (res.get("action_accepted") is False)
+            if not blocked and not bool(res.get("door_open", False)):
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"电梯 {self.elevator_id} 门口防夹传感器持续检测到障碍物，无法关门")
+            self._sleep(min(0.4, max(0.05, self.poll_interval_s * 2.0)), cancel_event)
+
+    def _dispatch_with_light_curtain_wait(
+        self,
+        cmd: str,
+        payload: dict[str, Any],
+        target_key: str,
+        *,
+        require_door_open: bool,
+        timeout_s: float,
+        cancel_event: threading.Event | None,
+    ) -> str:
+        deadline = time.monotonic() + timeout_s
+        dispatched = False
+        while time.monotonic() < deadline:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("elevator operation canceled")
+            if not dispatched:
+                res = self._client.request(payload)
+                self._update_iot_state(res)
+                blocked = bool(res.get("door_blocked", False)) or (res.get("action_accepted") is False)
+                if blocked and str(res.get("state") or "") == "IDLE" and str(res.get("current_floor") or "") != target_key:
+                    log.warning("native elevator %s dispatch delayed by doorway obstacle; retrying...", self.elevator_id)
+                    self._sleep(min(0.4, max(0.05, self.poll_interval_s * 2.0)), cancel_event)
+                    continue
+                dispatched = True
+                st = res
+            else:
+                st = self._status()
+            if (
+                str(st.get("state") or "") == "IDLE"
+                and str(st.get("current_floor") or "") == target_key
+                and (not require_door_open or bool(st.get("door_open")))
+            ):
+                return target_key
+            # If elevator aborted departure due to late doorway obstruction, re-dispatch once clear.
+            if str(st.get("state") or "") == "IDLE" and str(st.get("current_floor") or "") != target_key:
+                dispatched = False
+                self._sleep(min(0.4, max(0.05, self.poll_interval_s * 2.0)), cancel_event)
+                continue
+            self._sleep(self.poll_interval_s, cancel_event)
+        raise TimeoutError(f"native elevator {self.elevator_id} did not arrive at {target_key} ({cmd})")
+
+    def move_cabin(
+        self,
+        target_floor_label: str,
+        cancel_event: threading.Event | None = None,
+        timeout_s: float | None = None,
+    ) -> str:
+        fkey = self.resolve_floor(target_floor_label)
+        if not fkey:
+            raise ValueError(f"unknown target elevator floor: {target_floor_label!r}")
+        eff_timeout = float(timeout_s if timeout_s is not None else self.wait_timeout_s)
+        log.info("dispatching native elevator %s -> %s", self.elevator_id, fkey)
+        return self._dispatch_with_light_curtain_wait(
+            "elevator_move",
+            {
+                "cmd": "elevator_move",
+                "dimension": self.dimension,
+                "elevator_id": self.elevator_id,
+                "floor": fkey,
+            },
+            fkey,
+            require_door_open=False,
+            timeout_s=eff_timeout,
+            cancel_event=cancel_event,
+        )
+
+    def call_and_open(
+        self,
+        floor_label: str,
+        cancel_event: threading.Event | None = None,
+        timeout_s: float | None = None,
+    ) -> str:
+        fkey = self.resolve_floor(floor_label)
+        if not fkey:
+            raise ValueError(f"unknown elevator floor: {floor_label!r}")
+        eff_timeout = float(timeout_s if timeout_s is not None else self.wait_timeout_s)
+        log.info("calling native elevator %s -> %s (open_door=True)", self.elevator_id, fkey)
+        return self._dispatch_with_light_curtain_wait(
+            "elevator_call",
+            {
+                "cmd": "elevator_call",
+                "dimension": self.dimension,
+                "elevator_id": self.elevator_id,
+                "floor": fkey,
+                "open_door": True,
+            },
+            fkey,
+            require_door_open=True,
+            timeout_s=eff_timeout,
+            cancel_event=cancel_event,
+        )
+
+    def configured_floors(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "key": fkey,
+                "label": fkey,
+                "name": fkey,
+                "elevation_y": fcfg.get("elevation_y"),
+            }
+            for fkey, fcfg in self.floors.items()
+        ]
+
+    def status_snapshot(self) -> dict[str, Any]:
+        return {
+            "id": self.elevator_id,
+            "kind": "native",
+            "enabled": True,
+            "moving_cabin": True,
+            "floors": self.configured_floors(),
+            "last_floor": self._last_floor,
+            "last_door_open": self._last_door_open,
+            "last_door_blocked": self._last_door_blocked,
+            "last_error": self._last_error,
+        }
+
+
+class MultiElevatorManager:
+    """Offline-map-bound multi-elevator manager (ZERO runtime world-coordinate discovery).
+
+    - Native reusable Mod elevators are resolved strictly by the `elevator_id` & offline
+      geometry recorded on the `IndoorFloorMap` (via `indoor_mapper` right-click binding).
+    - Legacy `elevator.local.json` fallback is preserved for existing Lab floor maps.
+    """
+
+    def __init__(
+        self,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 25577,
+        dimension: str = "minecraft:overworld",
+        legacy: ElevatorClient | None = None,
+        transport: Any = None,
+    ) -> None:
+        self.host = str(host)
+        self.port = int(port)
+        self.dimension = str(dimension)
+        self.legacy = legacy
+        self._transport = transport
+        self._lock = threading.RLock()
+        self._native: dict[str, NativeElevatorClient] = {}
+        self.wait_timeout_s = float(legacy.wait_timeout_s) if legacy is not None else 90.0
+
+    def resolve_for_leg(self, leg: Any) -> NativeElevatorClient | ElevatorClient | None:
+        """Return the elevator controller bound to a planned RouteLeg (zero coordinate query)."""
+        elev_id = str(getattr(leg, "elevator_id", "") or "").strip()
+        if elev_id:
+            with self._lock:
+                client = self._native.get(elev_id)
+                if client is None:
+                    client = NativeElevatorClient(
+                        elev_id,
+                        dimension=self.dimension,
+                        host=self.host,
+                        port=self.port,
+                        transport=self._transport,
+                        wait_timeout_s=self.wait_timeout_s,
+                    )
+                    self._native[elev_id] = client
+            from_lbl = str(getattr(leg, "from_floor_label", "") or getattr(leg, "from_floor", "") or "")
+            to_lbl = str(getattr(leg, "to_floor_label", "") or getattr(leg, "to_floor", "") or "")
+            if from_lbl:
+                client.update_offline_floor(
+                    from_lbl,
+                    cabin_bounds_enu=getattr(leg, "from_cabin_bounds_enu", None),
+                    door_bounds_enu=getattr(leg, "from_door_bounds_enu", None),
+                    cabin_xy=getattr(leg, "from_cabin_xy", None),
+                    door_xy=getattr(leg, "from_door_xy", None),
+                    elevation_y=getattr(leg, "from_elevation_y", None),
+                )
+            if to_lbl:
+                client.update_offline_floor(
+                    to_lbl,
+                    cabin_bounds_enu=getattr(leg, "to_cabin_bounds_enu", None),
+                    door_bounds_enu=getattr(leg, "to_door_bounds_enu", None),
+                    cabin_xy=getattr(leg, "to_cabin_xy", None),
+                    door_xy=getattr(leg, "to_door_xy", None),
+                    elevation_y=getattr(leg, "to_elevation_y", None),
+                )
+            return client
+        if self.legacy is not None:
+            return self.legacy
+        return None
+
+    def supports_floor(self, floor_label: str) -> bool:
+        with self._lock:
+            if any(c.supports_floor(floor_label) for c in self._native.values()):
+                return True
+        return self.legacy is not None and self.legacy.supports_floor(floor_label)
+
+    def status_snapshot(self, indoor_store: Any = None) -> dict[str, Any]:
+        by_id: dict[str, dict[str, Any]] = {}
+        if indoor_store is not None and hasattr(indoor_store, "all_elevators"):
+            for el in indoor_store.all_elevators():
+                eid = str(el.get("elevator_id") or "").strip()
+                if not eid:
+                    continue
+                rec = by_id.setdefault(
+                    eid,
+                    {
+                        "id": eid,
+                        "kind": "native",
+                        "enabled": True,
+                        "moving_cabin": True,
+                        "name": str(el.get("name") or "电梯"),
+                        "building_name": str(el.get("building_name") or ""),
+                        "floors": [],
+                    },
+                )
+                rec["floors"].append({
+                    "key": str(el.get("floor_label") or el.get("floor") or ""),
+                    "label": str(el.get("floor") or ""),
+                    "elevation_y": el.get("elevation_y"),
+                })
+        with self._lock:
+            for eid, client in self._native.items():
+                snap = client.status_snapshot()
+                if eid in by_id:
+                    by_id[eid].update({
+                        "last_floor": snap["last_floor"],
+                        "last_door_open": snap["last_door_open"],
+                        "last_door_blocked": snap["last_door_blocked"],
+                    })
+                else:
+                    by_id[eid] = snap
+        items = list(by_id.values())
+        if self.legacy is not None:
+            leg_snap = dict(self.legacy.status_snapshot())
+            leg_snap["id"] = str(self.legacy.config.get("elevator_id") or "legacy_elevator")
+            leg_snap["kind"] = "legacy"
+            items.append(leg_snap)
+        return {
+            "enabled": bool(items),
+            "count": len(items),
+            "elevators": items,
+        }

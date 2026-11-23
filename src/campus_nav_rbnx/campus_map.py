@@ -422,6 +422,13 @@ class SurveyRecorder:
         self._log(f"closed area '{area['name']}' ({area['kind']}, {len(area['polygon'])} pts)")
         return area
 
+    def undo_area_vertex(self) -> list[float] | None:
+        if not self._area_draft:
+            return None
+        removed = self._area_draft.pop()
+        self._log(f"撤销上一个建筑角点 ({removed[0]:.1f}, {removed[1]:.1f})，剩余 {len(self._area_draft)} 点")
+        return removed
+
     def state_dict(self) -> dict[str, Any]:
         return {
             "active": self.active,

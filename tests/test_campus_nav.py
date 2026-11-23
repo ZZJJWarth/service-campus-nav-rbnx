@@ -1125,12 +1125,410 @@ def test_visual_coverage_frontier_explorer_escapes_enclosed_room():
     assert tx > 2.4, f"expected explorer to exit room through doorway x>2.4, got ({tx:.2f}, {ty:.2f})"
 
 
+def test_offline_elevator_binding_zero_coord_runtime_and_door_light_curtain(tmp_path):
+    """Verify:
+    1. Offline `indoor_mapper` right-click `bind_elevator` writes dedicated `IndoorFloorMap.elevators`
+       (never faked as a room!) and survives JSON save/load.
+    2. Multiple elevators in one building are matched by `elevator_id` in `GlobalPlanner.plan_unified`,
+       and `RouteLeg` carries offline geometry (`cabin_bounds_enu`, `door_bounds_enu`, `elevation_y`).
+    3. Runtime `MultiElevatorManager` + `NativeElevatorClient` NEVER calls `elevator_list` and
+       NEVER receives any world coordinates from 25577 (pure IoT state only).
+    4. Doorway light-curtain (`door_blocked=True`, `action_accepted=False`) causes clean wait & retry
+       until the doorway clears!
+    """
+    from campus_nav_rbnx.elevator_client import MultiElevatorManager, NativeElevatorClient
+
+    cmap = CampusMap(campus_id="new_campus", name="新校区")
+    n_out = cmap.add_node(0.0, 0.0, kind="waypoint")
+    n_ent = cmap.add_node(10.0, 0.0, kind="entrance")
+    cmap.add_edge(n_out["id"], n_ent["id"])
+
+    store = IndoorMapStore(tmp_path / "indoor")
+    fm_1f = store.get_or_create("bldg_new", "新教学楼", "1F", elevation_y=-60.0)
+    fm_3f = store.get_or_create("bldg_new", "新教学楼", "3F", elevation_y=-50.0)
+
+    rec = IndoorFloorSurveyRecorder()
+    rec.anchor_entrance(cmap, fm_1f, 10.0, 0.0, elevation_y=-60.0)
+    c1 = fm_1f.add_node(18.0, 0.0, kind="corridor")
+    fm_1f.add_edge(fm_1f.entrances[0]["node_id"], c1["id"], road_class="corridor")
+
+    # Offline right-click bind_elevator on 1F (East shaft elev_20_0)
+    bind_ev_1f = {
+        "seq": 1,
+        "action": "bind_elevator",
+        "pose": {"east": 18.7, "north": -0.5, "up": -60.0, "anchored": True},
+        "extra": {
+            "elevator_id": "elev_20_0",
+            "floor_label": "1F",
+            "facing": "east",
+            "elevation_y": -60,
+            "door_x": 18.7,
+            "door_y": -0.5,
+            "cabin_x": 23.5,
+            "cabin_y": -0.5,
+            "cabin_bounds_enu": [22.0, 25.0, -2.0, 1.0],
+            "door_bounds_enu": [20.0, 22.0, -2.0, 1.0],
+            "floors": ["1F", "2F", "3F"],
+        },
+    }
+    iout = rec.ingest_sample(cmap, fm_1f, 18.7, -0.5, anchored=True, elevation_y=-60.0, mark_event=bind_ev_1f)
+    assert iout["changed"] and iout["auto_saved"]
+    assert len(fm_1f.elevators) == 1
+    assert fm_1f.rooms == []  # Dedicated elevator entity, NOT faked as a room!
+    store.save(fm_1f)
+
+    # Also test manual 8093 UI mark_elevator_door + mark_elevator_cabin on a second West shaft (elev_80_0)
+    rec.mark_elevator_door(fm_1f, 78.5, 0.0, name="西翼电梯", elevator_id="elev_80_0")
+    assert rec.state == "awaiting_elevator_cabin"
+    rec.mark_elevator_cabin(fm_1f, 82.0, 0.0, elevation_y=-60.0)
+    assert len(fm_1f.elevators) == 2
+    store.save(fm_1f)
+
+    # 3F corridor + bind_elevator for elev_20_0 + Room 305
+    c3 = fm_3f.add_node(18.0, 0.0, kind="corridor")
+    bind_ev_3f = {
+        "seq": 2,
+        "action": "bind_elevator",
+        "pose": {"east": 18.7, "north": -0.5, "up": -50.0, "anchored": True},
+        "extra": {
+            "elevator_id": "elev_20_0",
+            "floor_label": "3F",
+            "facing": "east",
+            "elevation_y": -50,
+            "door_x": 18.7,
+            "door_y": -0.5,
+            "cabin_x": 23.5,
+            "cabin_y": -0.5,
+            "cabin_bounds_enu": [22.0, 25.0, -2.0, 1.0],
+            "door_bounds_enu": [20.0, 22.0, -2.0, 1.0],
+            "floors": ["1F", "2F", "3F"],
+        },
+    }
+    rec.ingest_sample(cmap, fm_3f, 18.7, -0.5, anchored=True, elevation_y=-50.0, mark_event=bind_ev_3f)
+    rec.mark_room_door(fm_3f, 14.0, 0.0, room_name="305会议室")
+    rec.mark_room_nav(fm_3f, 14.0, 4.0, room_name="305会议室")
+    store.save(fm_3f)
+
+    # Reload from disk to verify JSON round-trip of dedicated `elevators`
+    reloaded = IndoorMapStore(tmp_path / "indoor")
+    assert len(reloaded.all_elevators()) == 3
+    r_305 = reloaded.find_room("305会议室")
+    assert r_305 is not None
+    fm_goal, room_305 = r_305
+
+    planner = GlobalPlanner()
+    route = planner.plan_unified(
+        cmap,
+        reloaded.all_maps(),
+        (0.0, 0.0),
+        (room_305["x"], room_305["y"]),
+        start_indoor_id="",
+        goal_indoor_id=fm_goal.indoor_id,
+        goal_node_id=room_305["node_id"],
+    )
+    assert route is not None
+    elev_legs = [lg for lg in route.legs if lg.kind == "elevator"]
+    assert len(elev_legs) == 1
+    leg = elev_legs[0]
+    assert leg.elevator_id == "elev_20_0"
+    assert leg.from_cabin_bounds_enu == (22.0, 25.0, -2.0, 1.0)
+    assert leg.to_elevation_y == -50.0
+
+    # Strict Zero-Coordinate Runtime IoT transport (forbids `elevator_list`, returns ZERO coordinates!)
+    # Also simulates doorway light-curtain obstacle blocking the first 2 close attempts!
+    class _ZeroCoordLightCurtainTransport:
+        def __init__(self):
+            self.history: list[tuple[str, str, str]] = []
+            self.floor = "2F"
+            self.door_open = False
+            self.blocked_close_remaining = 2
+
+        def _runtime_json(self, *, accepted: bool = True, blocked: bool = False):
+            # ZERO coordinates, ZERO anchor, ZERO cabin_bounds, ZERO elevation_y!
+            return {
+                "id": "elev_20_0",
+                "state": "IDLE",
+                "current_floor": self.floor,
+                "target_floor": self.floor,
+                "door_open": self.door_open,
+                "door_blocked": blocked,
+                "action_accepted": accepted,
+                "floors": ["1F", "2F", "3F"],
+            }
+
+        def request(self, payload):
+            cmd = payload["cmd"]
+            assert cmd != "elevator_list", "runtime MUST NEVER call elevator_list!"
+            assert payload["elevator_id"] == "elev_20_0"
+            if cmd == "elevator_status":
+                return self._runtime_json()
+            if cmd == "elevator_call":
+                self.floor = payload["floor"]
+                self.door_open = bool(payload.get("open_door", True))
+                self.history.append(("call", payload["elevator_id"], self.floor))
+                return self._runtime_json()
+            if cmd == "elevator_move":
+                self.floor = payload["floor"]
+                self.door_open = False
+                self.history.append(("move", payload["elevator_id"], self.floor))
+                return self._runtime_json()
+            if cmd == "elevator_door":
+                if not payload["open"] and self.blocked_close_remaining > 0:
+                    self.blocked_close_remaining -= 1
+                    self.history.append(("door:blocked", payload["elevator_id"], str(payload.get("floor") or "")))
+                    return self._runtime_json(accepted=False, blocked=True)
+                self.door_open = bool(payload["open"])
+                self.history.append(("door:" + ("open" if self.door_open else "close"), payload["elevator_id"], str(payload.get("floor") or "")))
+                return self._runtime_json(accepted=True, blocked=False)
+            raise AssertionError(f"unexpected cmd {cmd}")
+
+    tr = _ZeroCoordLightCurtainTransport()
+    mgr = MultiElevatorManager(transport=tr)
+    elev = mgr.resolve_for_leg(leg)
+    assert isinstance(elev, NativeElevatorClient)
+    assert elev.elevator_id == "elev_20_0"
+    elev.poll_interval_s = 0.01
+
+    # Geometry checks work 100% from offline leg data (zero server query!)
+    assert elev.safe_cabin_interior_xy("1F") == (23.5, -0.5)
+    assert elev.is_xy_safely_inside_cabin("1F", 23.5, -0.5) is True
+    assert elev.is_xy_safely_inside_cabin("1F", 21.0, -0.5) is False  # doorway excluded
+    assert elev.is_xy_safely_outside_cabin("1F", 18.7, -0.5) is True
+    assert elev.floor_elevation_y("3F") == -50.0
+
+    # Light-curtain retry test: close_door waits through 2 blocked responses then succeeds cleanly!
+    elev.call_and_open("1F")
+    elev.close_door("1F")
+    assert tr.history.count(("door:blocked", "elev_20_0", "1F")) == 2
+    assert ("door:close", "elev_20_0", "1F") in tr.history
+    elev.move_cabin("3F")
+    assert elev.current_floor() == "3F"
+
+    # Status snapshot reads offline store without querying 25577
+    snap = mgr.status_snapshot(reloaded)
+    assert snap["enabled"] is True
+    assert {e["id"] for e in snap["elevators"]} == {"elev_20_0", "elev_80_0"}
+
+
+def test_door_auto_open_narrow_pass_and_multifloor_stairs(tmp_path):
+    """Verify:
+    1. Pure-sensor doorway inspection: skips already-open doors (never closes them),
+       clicks closed doors via pure-physical `interact_point`, refreshes costmap, and verifies clear.
+    2. Side-offset retry opens double doors / button-operated iron doors when center click isn't enough.
+    3. Multi-floor walkable `stairs` landings connect 1F <-> 2F in GlobalPlanner with zero elevator needed!
+    """
+    from campus_nav_rbnx.door_controller import (
+        DoorInteractor,
+        doorway_clear_width_m,
+        ensure_door_open_and_verified,
+        is_doorway_blocked,
+    )
+
+    # Build a 20x20 m costmap (0.2 m res = 100x100, origin -10..-10) with a wall along x=2.0
+    # and a 1-block doorway at x=2.0, y in [-0.5, 0.5]
+    res = 0.2
+    grid_data = np.zeros((100, 100), dtype=np.int8)
+    # Wall at x in [1.8, 2.2] (cols 59..61)
+    grid_data[:, 59:61] = 100
+    # Closed door initially blocks doorway y in [-0.5, 0.5] (rows 48..53)
+    grid = LocalCostGridSnapshot(origin_x=-10.0, origin_y=-10.0, resolution=res, width=100, height=100, data=grid_data)
+
+    assert is_doorway_blocked(grid, 2.0, 0.0, 0.0) is True
+
+    class _FakeInteractTransport:
+        def __init__(self, open_on_call: int = 1):
+            self.calls: list[dict] = []
+            self.open_on_call = open_on_call
+
+        def request(self, payload):
+            assert payload["cmd"] == "interact_point"
+            self.calls.append(payload)
+            if len(self.calls) >= self.open_on_call:
+                # Simulate door opening in the world -> 1-block doorway clears!
+                grid_data[48:53, 59:61] = 0
+            return {"interacted": True, "consumed": True, "hit_distance_m": 1.6}
+
+    # Case 1: Closed wooden door -> opens on 1st center click & verifies clear
+    tr1 = _FakeInteractTransport(open_on_call=1)
+    inter1 = DoorInteractor(transport=tr1)
+    resets = [0]
+    ok, tag = ensure_door_open_and_verified(
+        inter1,
+        lambda: grid,
+        2.0,
+        0.0,
+        0.0,
+        0.0,
+        reset_local_map_fn=lambda: (resets.__setitem__(0, resets[0] + 1) or True),
+        settle_s=0.01,
+    )
+    assert ok is True and tag == "opened_center"
+    assert len(tr1.calls) == 1
+    assert resets[0] == 1
+    assert is_doorway_blocked(grid, 2.0, 0.0, 0.0) is False
+    # 1-block doorway clear width should measure ~1.0 m (<= 1.55 m narrow trigger!)
+    w_clear = doorway_clear_width_m(grid, 2.0, 0.0, 0.0)
+    assert w_clear is not None and 0.8 <= w_clear <= 1.4
+
+    # Case 2: Already-open door -> MUST NOT click (prevents accidentally shutting an open door!)
+    tr2 = _FakeInteractTransport(open_on_call=1)
+    ok2, tag2 = ensure_door_open_and_verified(DoorInteractor(transport=tr2), lambda: grid, 2.0, 0.0, 0.0, 0.0, settle_s=0.01)
+    assert ok2 is True and tag2 == "already_open"
+    assert len(tr2.calls) == 0
+
+    # Case 3: Iron door with button on the side -> center click fails, side click opens!
+    grid_data[48:53, 59:61] = 100
+    tr3 = _FakeInteractTransport(open_on_call=2)
+    ok3, tag3 = ensure_door_open_and_verified(DoorInteractor(transport=tr3), lambda: grid, 2.0, 0.0, 0.0, 0.0, settle_s=0.01)
+    assert ok3 is True and tag3 == "opened_side"
+    assert len(tr3.calls) == 2
+
+    # Case 4: Multi-floor stairs planning (NO elevator in building!)
+    cmap = CampusMap(campus_id="city", name="城市测试")
+    n_out = cmap.add_node(0.0, 0.0, kind="waypoint")
+    n_ent = cmap.add_node(8.0, 0.0, kind="entrance")
+    cmap.add_edge(n_out["id"], n_ent["id"])
+
+    store = IndoorMapStore(tmp_path / "indoor_stairs")
+    fm1 = store.get_or_create("city_house", "城市住宅", "1F", elevation_y=64.0)
+    fm2 = store.get_or_create("city_house", "城市住宅", "2F", elevation_y=69.0)
+    rec = IndoorFloorSurveyRecorder()
+    rec.anchor_entrance(cmap, fm1, 8.0, 0.0, elevation_y=64.0)
+    c1 = fm1.add_node(12.0, 0.0, kind="corridor")
+    fm1.add_edge(fm1.entrances[0]["node_id"], c1["id"], road_class="corridor")
+    fm1.upsert_stairs(14.0, 0.0, stairs_id="main_stairs", name="主楼梯", elevation_y=64.0)
+    store.save(fm1)
+
+    c2 = fm2.add_node(14.0, 4.0, kind="corridor")
+    fm2.upsert_stairs(14.0, 0.0, stairs_id="main_stairs", name="主楼梯", elevation_y=69.0)
+    rec.mark_room_door(fm2, 14.0, 6.0, room_name="二楼书房")
+    rec.mark_room_nav(fm2, 14.0, 9.0, room_name="二楼书房")
+    store.save(fm2)
+
+    reloaded = IndoorMapStore(tmp_path / "indoor_stairs")
+    assert len(reloaded.all_stairs()) == 2
+    found = reloaded.find_room("二楼书房")
+    assert found is not None
+    fm_g, rm_g = found
+
+    planner = GlobalPlanner()
+    route = planner.plan_unified(
+        cmap,
+        reloaded.all_maps(),
+        (0.0, 0.0),
+        (rm_g["x"], rm_g["y"]),
+        start_indoor_id="",
+        goal_indoor_id=fm_g.indoor_id,
+        goal_node_id=rm_g["node_id"],
+    )
+    assert route is not None
+    assert len(route.legs) == 1 and route.legs[0].kind == "walk"
+    assert any(eid.startswith("stairs:") for eid in route.edge_ids)
+
+
+def test_outdoor_granularity_and_corner_clamping(tmp_path):
+    """Outdoor sharp street corners clamp when enabled, and runtime tuning updates live."""
+    pts = [(0.0, 0.0), (10.0, 0.0), (10.0, 12.0)]
+    pt_clamp, _, is_fin, _, _ = polyline_lookahead(
+        pts, (2.0, 0.0), 14.0, corner_clamp_deg=35.0, outdoor_corner_clamp=True
+    )
+    assert pt_clamp == (10.0, 0.0)
+    assert not is_fin
+
+    pt_free, _, _, _, _ = polyline_lookahead(
+        pts, (2.0, 0.0), 14.0, corner_clamp_deg=35.0, outdoor_corner_clamp=False
+    )
+    assert pt_free[1] > 4.0
+
+    cfg = params.from_config({"lookahead_m": 14.0, "advance_radius_m": 4.5}, tmp_path)
+    exec_obj = HierarchicalNavExecutive(
+        cfg=cfg,
+        map_provider=lambda: CampusMap(),
+        fusion=RtkOdomFusion(),
+        planner=GlobalPlanner(),
+        cost_grid_provider=lambda: None,
+    )
+    updated = exec_obj.set_nav_tuning(lookahead_m=5.0, advance_radius_m=4.5, outdoor_corner_clamp=False)
+    assert updated["lookahead_m"] == 5.0
+    assert updated["advance_radius_m"] <= 3.6
+    assert updated["outdoor_corner_clamp"] is False
+
+
+def test_door_verification_rejects_missing_or_unknown_cost_grid():
+    """Door opening MUST NOT report success when costmap is missing or all UNKNOWN (-1)."""
+    from campus_nav_rbnx.door_controller import ensure_door_open_and_verified
+
+    class _StubInteractor:
+        def __init__(self, interacted: bool = False):
+            self.interacted = interacted
+            self.calls = 0
+
+        def interact_odom_point(self, x, y, z, max_reach=4.2):
+            self.calls += 1
+            return {"ok": True, "interacted": self.interacted}
+
+    # 1. Missing costmap -> False, missing_cost_grid
+    stub1 = _StubInteractor(interacted=False)
+    ok1, reason1 = ensure_door_open_and_verified(
+        stub1, lambda: None, 5.0, 0.0, 0.0, 0.0, settle_s=0.0
+    )
+    assert ok1 is False and reason1 == "missing_cost_grid"
+
+    # 2. All UNKNOWN (-1) costmap -> False, unknown_cost_grid
+    unk = LocalCostGridSnapshot(
+        origin_x=0.0, origin_y=-5.0, resolution=0.2, width=50, height=50,
+        data=np.full((50, 50), -1, dtype=np.int8),
+    )
+    stub2 = _StubInteractor(interacted=False)
+    ok2, reason2 = ensure_door_open_and_verified(
+        stub2, lambda: unk, 5.0, 0.0, 0.0, 0.0, settle_s=0.0
+    )
+    assert ok2 is False and reason2 == "unknown_cost_grid"
+
+    # 3. Still blocked (100) -> False, still_blocked
+    blk = LocalCostGridSnapshot(
+        origin_x=0.0, origin_y=-5.0, resolution=0.2, width=50, height=50,
+        data=np.full((50, 50), 100, dtype=np.int8),
+    )
+    stub3 = _StubInteractor(interacted=False)
+    ok3, reason3 = ensure_door_open_and_verified(
+        stub3, lambda: blk, 5.0, 0.0, 0.0, 0.0, settle_s=0.0
+    )
+    assert ok3 is False and reason3 == "still_blocked"
+
+
+def test_se2_rtk_odom_fusion_handles_relative_origin_and_yaw_drift():
+    """RtkOdomFusion aligns spawn-relative (0,0,0) odom with arbitrary world pose & yaw drift."""
+    import math
+
+    fusion = RtkOdomFusion(require_global_lock=True)
+    # Robot boots at relative odom (0, 0, yaw=0) while real world RTK is (100, -50, yaw=pi/2)
+    fusion.update_odom(0.0, 0.0, 0.0, z=0.0)
+    fusion.update_rtk_fix(100.0, -50.0, math.pi / 2.0, sigma_xy=0.05)
+    pose0 = fusion.campus_pose()
+    assert pose0 is not None
+    assert pose0[0] == pytest.approx(100.0, abs=1e-3)
+    assert pose0[1] == pytest.approx(-50.0, abs=1e-3)
+    assert pose0[2] == pytest.approx(math.pi / 2.0, abs=1e-3)
+
+    # Robot walks +10m along its local odom +X (which is campus +Y due to yaw_offset = pi/2)
+    fusion.update_odom(10.0, 0.0, 0.0, z=0.0)
+    pose1 = fusion.campus_pose()
+    assert pose1 is not None
+    assert pose1[0] == pytest.approx(100.0, abs=1e-3)
+    assert pose1[1] == pytest.approx(-40.0, abs=1e-3)
+    # Inverse transform round-trip
+    ox, oy = fusion.campus_to_odom(100.0, -40.0)
+    assert ox == pytest.approx(10.0, abs=1e-3) and oy == pytest.approx(0.0, abs=1e-3)
+
+
 def test_no_game_state_references_in_src():
     forbidden = (
         "ground" + "_truth",
         "perception" + "/objects",
         "get" + "_state",
         "SCENE" + "_",
+        "elevator" + "_list",
     )
     offenders = []
     for path in sorted(SRC.glob("*.py")):

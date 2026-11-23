@@ -1,0 +1,401 @@
+{
+  "version": 1,
+  "indoor_id": "a_1d072c67__2F",
+  "building_id": "a_1d072c67",
+  "building_name": "未名宾馆",
+  "floor": "2F",
+  "elevation_y": 76.0,
+  "entrances": [],
+  "nodes": [
+    {
+      "id": "in_8b9e5d4f",
+      "x": 20.685,
+      "y": 164.139,
+      "kind": "stairs",
+      "indoor": true,
+      "floor": "2F",
+      "label": "主楼梯(2F)"
+    },
+    {
+      "id": "in_ea32861f",
+      "x": 20.685,
+      "y": 164.139,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_4abda7d5",
+      "x": 23.978,
+      "y": 163.146,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_7aa3c4e3",
+      "x": 26.568,
+      "y": 163.14,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_b165ce35",
+      "x": 30.236,
+      "y": 163.086,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_66b840b9",
+      "x": 33.255,
+      "y": 163.034,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_0c780530",
+      "x": 36.277,
+      "y": 163.001,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_aa221d62",
+      "x": 18.055,
+      "y": 162.3,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_ae3a7bd4",
+      "x": 16.48,
+      "y": 158.858,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_48517686",
+      "x": 16.488,
+      "y": 160.503,
+      "kind": "corridor",
+      "indoor": true,
+      "floor": "2F"
+    },
+    {
+      "id": "in_2d1ccb43",
+      "x": 20.405,
+      "y": 163.647,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "2F",
+      "label": "2F-房间1门口"
+    },
+    {
+      "id": "in_894c24d3",
+      "x": 20.418,
+      "y": 158.917,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "2F",
+      "label": "2F-房间1"
+    },
+    {
+      "id": "in_aa866161",
+      "x": 24.379,
+      "y": 163.354,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "2F",
+      "label": "2F-房间2门口"
+    },
+    {
+      "id": "in_741632e2",
+      "x": 24.427,
+      "y": 158.826,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "2F",
+      "label": "2F-房间2"
+    },
+    {
+      "id": "in_a50c3e44",
+      "x": 26.667,
+      "y": 162.719,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "2F",
+      "label": "2F-房间3门口"
+    },
+    {
+      "id": "in_00a2a4f6",
+      "x": 26.588,
+      "y": 167.244,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "2F",
+      "label": "2F-房间3"
+    },
+    {
+      "id": "in_b9df92b5",
+      "x": 28.319,
+      "y": 163.301,
+      "kind": "room_door",
+      "indoor": true,
+      "floor": "2F",
+      "label": "2F-房间4门口"
+    },
+    {
+      "id": "in_5dbc307c",
+      "x": 28.427,
+      "y": 158.778,
+      "kind": "room_nav",
+      "indoor": true,
+      "floor": "2F",
+      "label": "2F-房间4"
+    }
+  ],
+  "edges": [
+    {
+      "id": "ie_3414c832",
+      "from": "in_ea32861f",
+      "to": "in_4abda7d5",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_80ad918b",
+      "from": "in_4abda7d5",
+      "to": "in_7aa3c4e3",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_35cf7686",
+      "from": "in_b165ce35",
+      "to": "in_66b840b9",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_4a640d76",
+      "from": "in_66b840b9",
+      "to": "in_0c780530",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_021ab6ee",
+      "from": "in_ea32861f",
+      "to": "in_aa221d62",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_3b25be7a",
+      "from": "in_aa221d62",
+      "to": "in_ae3a7bd4",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_25fbc894",
+      "from": "in_ae3a7bd4",
+      "to": "in_48517686",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_9f132aba",
+      "from": "in_8b9e5d4f",
+      "to": "in_2d1ccb43",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_bed8a182",
+      "from": "in_2d1ccb43",
+      "to": "in_894c24d3",
+      "name": "2F-房间1入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_8e22d10c",
+      "from": "in_4abda7d5",
+      "to": "in_aa866161",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_a98fba5a",
+      "from": "in_aa866161",
+      "to": "in_741632e2",
+      "name": "2F-房间2入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_f0b00f0d",
+      "from": "in_7aa3c4e3",
+      "to": "in_a50c3e44",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_ca7f3e17",
+      "from": "in_a50c3e44",
+      "to": "in_00a2a4f6",
+      "name": "2F-房间3入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_542b3755",
+      "from": "in_7aa3c4e3",
+      "to": "in_b9df92b5",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_effb21b6",
+      "from": "in_b9df92b5",
+      "to": "in_b165ce35",
+      "name": "",
+      "road_class": "corridor",
+      "width_m": 2.0,
+      "weight": 1.0,
+      "bidirectional": true
+    },
+    {
+      "id": "ie_13ddf122",
+      "from": "in_b9df92b5",
+      "to": "in_5dbc307c",
+      "name": "2F-房间4入口",
+      "road_class": "room_entry",
+      "width_m": 1.5,
+      "weight": 1.0,
+      "bidirectional": true
+    }
+  ],
+  "rooms": [
+    {
+      "id": "rm_b5fc5381",
+      "name": "2F-房间1",
+      "aliases": [],
+      "category": "room",
+      "x": 20.418,
+      "y": 158.917,
+      "node_id": "in_894c24d3",
+      "door_node_id": "in_2d1ccb43",
+      "indoor_id": "a_1d072c67__2F",
+      "building_id": "a_1d072c67",
+      "building_name": "未名宾馆",
+      "floor": "2F"
+    },
+    {
+      "id": "rm_c5e2d302",
+      "name": "2F-房间2",
+      "aliases": [],
+      "category": "room",
+      "x": 24.427,
+      "y": 158.826,
+      "node_id": "in_741632e2",
+      "door_node_id": "in_aa866161",
+      "indoor_id": "a_1d072c67__2F",
+      "building_id": "a_1d072c67",
+      "building_name": "未名宾馆",
+      "floor": "2F"
+    },
+    {
+      "id": "rm_52a8d4d1",
+      "name": "2F-房间3",
+      "aliases": [],
+      "category": "room",
+      "x": 26.588,
+      "y": 167.244,
+      "node_id": "in_00a2a4f6",
+      "door_node_id": "in_a50c3e44",
+      "indoor_id": "a_1d072c67__2F",
+      "building_id": "a_1d072c67",
+      "building_name": "未名宾馆",
+      "floor": "2F"
+    },
+    {
+      "id": "rm_c7038051",
+      "name": "2F-房间4",
+      "aliases": [],
+      "category": "room",
+      "x": 28.427,
+      "y": 158.778,
+      "node_id": "in_5dbc307c",
+      "door_node_id": "in_b9df92b5",
+      "indoor_id": "a_1d072c67__2F",
+      "building_id": "a_1d072c67",
+      "building_name": "未名宾馆",
+      "floor": "2F"
+    }
+  ],
+  "elevators": [],
+  "stairs": [
+    {
+      "id": "st_e36a6bbb",
+      "name": "主楼梯",
+      "stairs_id": "主楼梯",
+      "node_id": "in_8b9e5d4f",
+      "x": 20.685,
+      "y": 164.139,
+      "elevation_y": 76.0,
+      "indoor_id": "a_1d072c67__2F",
+      "building_id": "a_1d072c67",
+      "building_name": "未名宾馆",
+      "floor": "2F"
+    }
+  ],
+  "markers": []
+}

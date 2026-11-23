@@ -46,6 +46,8 @@ class IndoorFloorMap:
     nodes: list[dict[str, Any]] = field(default_factory=list)
     edges: list[dict[str, Any]] = field(default_factory=list)
     rooms: list[dict[str, Any]] = field(default_factory=list)
+    elevators: list[dict[str, Any]] = field(default_factory=list)
+    stairs: list[dict[str, Any]] = field(default_factory=list)
     markers: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,6 +62,8 @@ class IndoorFloorMap:
             "nodes": copy.deepcopy(self.nodes),
             "edges": copy.deepcopy(self.edges),
             "rooms": copy.deepcopy(self.rooms),
+            "elevators": copy.deepcopy(self.elevators),
+            "stairs": copy.deepcopy(self.stairs),
             "markers": copy.deepcopy(self.markers),
         }
 
@@ -74,6 +78,8 @@ class IndoorFloorMap:
             "node_count": len(self.nodes),
             "edge_count": len(self.edges),
             "room_count": len(self.rooms),
+            "elevator_count": len(self.elevators),
+            "stairs_count": len(self.stairs),
             "marker_count": len(self.markers),
             "entrances": copy.deepcopy(self.entrances),
         }
@@ -173,6 +179,96 @@ class IndoorFloorMap:
                 "building_name": m.building_name,
                 "floor": floor,
             })
+        for el in raw.get("elevators") or []:
+            if not isinstance(el, dict):
+                continue
+            try:
+                dx = float(el.get("door_x", el.get("cabin_x", 0.0)))
+                dy = float(el.get("door_y", el.get("cabin_y", 0.0)))
+                cx = float(el.get("cabin_x", dx))
+                cy = float(el.get("cabin_y", dy))
+            except (TypeError, ValueError):
+                continue
+            if not (math.isfinite(dx) and math.isfinite(dy) and math.isfinite(cx) and math.isfinite(cy)):
+                continue
+            dnid = str(el.get("door_node_id") or "")
+            if dnid not in seen_nodes:
+                dnid = ""
+            cnid = str(el.get("cabin_node_id") or "")
+            if cnid not in seen_nodes:
+                cnid = ""
+            cbox_raw = el.get("cabin_bounds_enu")
+            cbox = (
+                [round(float(v), 3) for v in cbox_raw[:4]]
+                if isinstance(cbox_raw, (list, tuple)) and len(cbox_raw) >= 4
+                else None
+            )
+            dbox_raw = el.get("door_bounds_enu")
+            dbox = (
+                [round(float(v), 3) for v in dbox_raw[:4]]
+                if isinstance(dbox_raw, (list, tuple)) and len(dbox_raw) >= 4
+                else None
+            )
+            elev_y_raw = el.get("elevation_y")
+            elev_y = (
+                round(float(elev_y_raw), 2)
+                if elev_y_raw is not None and math.isfinite(float(elev_y_raw))
+                else m.elevation_y
+            )
+            m.elevators.append({
+                "id": str(el.get("id") or _short_id("el")),
+                "name": str(el.get("name") or "电梯").strip() or "电梯",
+                "elevator_id": str(el.get("elevator_id") or "").strip(),
+                "floor_label": str(el.get("floor_label") or floor).strip() or floor,
+                "door_node_id": dnid,
+                "cabin_node_id": cnid,
+                "door_x": round(dx, 3),
+                "door_y": round(dy, 3),
+                "cabin_x": round(cx, 3),
+                "cabin_y": round(cy, 3),
+                "cabin_bounds_enu": cbox,
+                "door_bounds_enu": dbox,
+                "elevation_y": elev_y,
+                "facing": str(el.get("facing") or ""),
+                "indoor_id": indoor_id,
+                "building_id": building_id,
+                "building_name": m.building_name,
+                "floor": floor,
+            })
+
+        for st in raw.get("stairs") or []:
+            if not isinstance(st, dict):
+                continue
+            try:
+                sx = float(st.get("x", 0.0))
+                sy = float(st.get("y", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if not (math.isfinite(sx) and math.isfinite(sy)):
+                continue
+            snid = str(st.get("node_id") or "")
+            if snid not in seen_nodes:
+                snid = ""
+            elev_y_raw = st.get("elevation_y")
+            elev_y = (
+                round(float(elev_y_raw), 2)
+                if elev_y_raw is not None and math.isfinite(float(elev_y_raw))
+                else m.elevation_y
+            )
+            m.stairs.append({
+                "id": str(st.get("id") or _short_id("st")),
+                "name": str(st.get("name") or "楼梯").strip() or "楼梯",
+                "stairs_id": str(st.get("stairs_id") or "stairs_main").strip() or "stairs_main",
+                "node_id": snid,
+                "x": round(sx, 3),
+                "y": round(sy, 3),
+                "elevation_y": elev_y,
+                "indoor_id": indoor_id,
+                "building_id": building_id,
+                "building_name": m.building_name,
+                "floor": floor,
+            })
+
         for mk in raw.get("markers") or []:
             try:
                 mid = int(mk["marker_id"])
@@ -378,6 +474,166 @@ class IndoorFloorMap:
         self.rooms.append(room)
         return room
 
+    def upsert_elevator(
+        self,
+        *,
+        elevator_id: str = "",
+        name: str = "",
+        floor_label: str = "",
+        door_x: float,
+        door_y: float,
+        cabin_x: float,
+        cabin_y: float,
+        door_node_id: str = "",
+        cabin_node_id: str = "",
+        cabin_bounds_enu: list[float] | tuple[float, ...] | None = None,
+        door_bounds_enu: list[float] | tuple[float, ...] | None = None,
+        elevation_y: float | None = None,
+        facing: str = "",
+    ) -> dict[str, Any]:
+        """Register or update a dedicated elevator entity on this floor with door + cabin topology."""
+        clean_eid = str(elevator_id or "").strip()
+        clean_name = str(name or "").strip()
+        clean_fl = str(floor_label or self.floor).strip() or self.floor
+        if elevation_y is not None and math.isfinite(float(elevation_y)) and self.elevation_y is None:
+            self.elevation_y = round(float(elevation_y), 2)
+
+        existing: dict[str, Any] | None = None
+        if clean_eid:
+            for item in self.elevators:
+                if str(item.get("elevator_id") or "") == clean_eid:
+                    existing = item
+                    break
+        if existing is None and clean_name:
+            for item in self.elevators:
+                if str(item.get("name") or "") == clean_name:
+                    existing = item
+                    break
+
+        if not clean_name:
+            if existing is not None and existing.get("name"):
+                clean_name = str(existing["name"])
+            else:
+                idx = len(self.elevators) + 1
+                clean_name = "电梯" if idx == 1 else f"电梯{idx}"
+
+        nodes = self.node_map()
+        dnid = door_node_id if (door_node_id and door_node_id in nodes) else (
+            str(existing.get("door_node_id") or "") if existing else ""
+        )
+        if dnid and dnid in nodes:
+            nodes[dnid]["x"] = round(float(door_x), 3)
+            nodes[dnid]["y"] = round(float(door_y), 3)
+            nodes[dnid]["label"] = f"{clean_name}候梯口"
+            door_node = nodes[dnid]
+        else:
+            door_node = self.add_node(door_x, door_y, kind="room_door", label=f"{clean_name}候梯口")
+            dnid = door_node["id"]
+            self.attach_node_to_nearest_corridor(door_node, max_dist_m=15.0)
+
+        nodes = self.node_map()
+        cnid = cabin_node_id if (cabin_node_id and cabin_node_id in nodes) else (
+            str(existing.get("cabin_node_id") or "") if existing else ""
+        )
+        if cnid and cnid in nodes:
+            nodes[cnid]["x"] = round(float(cabin_x), 3)
+            nodes[cnid]["y"] = round(float(cabin_y), 3)
+            nodes[cnid]["kind"] = "elevator"
+            nodes[cnid]["label"] = clean_name
+        else:
+            cabin_node = self.add_node(cabin_x, cabin_y, kind="elevator", label=clean_name)
+            cnid = cabin_node["id"]
+
+        if dnid != cnid:
+            self.add_edge(dnid, cnid, name=f"{clean_name}轿厢入口", road_class="room_entry", width_m=2.0)
+
+        cbox = (
+            [round(float(v), 3) for v in cabin_bounds_enu[:4]]
+            if isinstance(cabin_bounds_enu, (list, tuple)) and len(cabin_bounds_enu) >= 4
+            else (existing.get("cabin_bounds_enu") if existing else None)
+        )
+        dbox = (
+            [round(float(v), 3) for v in door_bounds_enu[:4]]
+            if isinstance(door_bounds_enu, (list, tuple)) and len(door_bounds_enu) >= 4
+            else (existing.get("door_bounds_enu") if existing else None)
+        )
+        eff_elev_y = (
+            round(float(elevation_y), 2)
+            if elevation_y is not None and math.isfinite(float(elevation_y))
+            else (existing.get("elevation_y") if existing else self.elevation_y)
+        )
+
+        entry = {
+            "id": str(existing["id"]) if existing else _short_id("el"),
+            "name": clean_name,
+            "elevator_id": clean_eid or (str(existing.get("elevator_id") or "") if existing else ""),
+            "floor_label": clean_fl,
+            "door_node_id": dnid,
+            "cabin_node_id": cnid,
+            "door_x": round(float(door_x), 3),
+            "door_y": round(float(door_y), 3),
+            "cabin_x": round(float(cabin_x), 3),
+            "cabin_y": round(float(cabin_y), 3),
+            "cabin_bounds_enu": cbox,
+            "door_bounds_enu": dbox,
+            "elevation_y": eff_elev_y,
+            "facing": str(facing or (existing.get("facing") if existing else "") or ""),
+            "indoor_id": self.indoor_id,
+            "building_id": self.building_id,
+            "building_name": self.building_name or self.building_id,
+            "floor": self.floor,
+        }
+        self.elevators = [item for item in self.elevators if item["id"] != entry["id"]]
+        self.elevators.append(entry)
+        return entry
+
+    def upsert_stairs(
+        self,
+        x: float,
+        y: float,
+        *,
+        stairs_id: str = "stairs_main",
+        name: str = "",
+        elevation_y: float | None = None,
+    ) -> dict[str, Any]:
+        """Register or update a walkable staircase landing on this floor and attach to nearest corridor."""
+        clean_sid = str(stairs_id or "stairs_main").strip() or "stairs_main"
+        clean_name = str(name or "").strip() or "楼梯"
+        if elevation_y is not None and math.isfinite(float(elevation_y)) and self.elevation_y is None:
+            self.elevation_y = round(float(elevation_y), 2)
+        existing = next((s for s in self.stairs if str(s.get("stairs_id") or "") == clean_sid), None)
+        nodes = self.node_map()
+        nid = str(existing.get("node_id") or "") if existing else ""
+        if nid and nid in nodes:
+            nodes[nid]["x"] = round(float(x), 3)
+            nodes[nid]["y"] = round(float(y), 3)
+            nodes[nid]["kind"] = "stairs"
+            nodes[nid]["label"] = f"{clean_name}({self.floor})"
+        else:
+            st_node = self.add_node(x, y, kind="stairs", label=f"{clean_name}({self.floor})")
+            nid = st_node["id"]
+            self.attach_node_to_nearest_corridor(st_node, max_dist_m=15.0)
+        entry = {
+            "id": str(existing["id"]) if existing else _short_id("st"),
+            "name": clean_name,
+            "stairs_id": clean_sid,
+            "node_id": nid,
+            "x": round(float(x), 3),
+            "y": round(float(y), 3),
+            "elevation_y": (
+                round(float(elevation_y), 2)
+                if elevation_y is not None and math.isfinite(float(elevation_y))
+                else self.elevation_y
+            ),
+            "indoor_id": self.indoor_id,
+            "building_id": self.building_id,
+            "building_name": self.building_name or self.building_id,
+            "floor": self.floor,
+        }
+        self.stairs = [item for item in self.stairs if item["id"] != entry["id"]]
+        self.stairs.append(entry)
+        return entry
+
     def upsert_marker(
         self,
         marker_id: int,
@@ -506,6 +762,20 @@ class IndoorMapStore:
                 out.append(copy.deepcopy(mk))
         return out
 
+    def all_elevators(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for fm in sorted(self._maps.values(), key=lambda m: (m.building_name, m.floor)):
+            for el in fm.elevators:
+                out.append(copy.deepcopy(el))
+        return out
+
+    def all_stairs(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for fm in sorted(self._maps.values(), key=lambda m: (m.building_name, m.floor)):
+            for st in fm.stairs:
+                out.append(copy.deepcopy(st))
+        return out
+
     def find_marker(self, marker_id: int) -> tuple[IndoorFloorMap, dict[str, Any]] | None:
         mid = int(marker_id)
         for fm in self._maps.values():
@@ -580,14 +850,17 @@ class IndoorFloorSurveyRecorder:
         self.turn_threshold_rad = math.radians(turn_threshold_deg)
         self.merge_radius_m = float(merge_radius_m)
         self.outdoor_snap_m = float(outdoor_snap_m)
-        self.state: str = "idle"  # idle | corridor | awaiting_room_nav | in_room_paused
+        self.state: str = "idle"  # idle | corridor | awaiting_room_nav | awaiting_elevator_cabin | in_room_paused
         self.active_indoor_id: str = ""
         self.room_name: str = ""
+        self.elevator_name: str = ""
+        self.elevator_id: str = ""
         self.entrance_node_id: str | None = None
         self.last_corridor_node_id: str | None = None
         self.last_corridor_xy: tuple[float, float] | None = None
         self.last_heading: float | None = None
         self.pending_door_node_id: str | None = None
+        self.pending_elevator_door_node_id: str | None = None
         self.last_door_node_id: str | None = None
         self._last_mark_seq: int = 0
         self.events: list[str] = []
@@ -603,6 +876,7 @@ class IndoorFloorSurveyRecorder:
         self.last_corridor_xy = None
         self.last_heading = None
         self.pending_door_node_id = None
+        self.pending_elevator_door_node_id = None
         self.last_door_node_id = None
 
     def state_dict(self) -> dict[str, Any]:
@@ -611,9 +885,12 @@ class IndoorFloorSurveyRecorder:
             "active": self.active,
             "active_indoor_id": self.active_indoor_id,
             "room_name": self.room_name,
+            "elevator_name": self.elevator_name,
+            "elevator_id": self.elevator_id,
             "entrance_node_id": self.entrance_node_id,
             "last_corridor_node_id": self.last_corridor_node_id,
             "pending_door_node_id": self.pending_door_node_id,
+            "pending_elevator_door_node_id": self.pending_elevator_door_node_id,
             "last_door_node_id": self.last_door_node_id,
             "recent_events": list(self.events[-8:]),
         }
@@ -736,6 +1013,128 @@ class IndoorFloorSurveyRecorder:
         self._log(f"[{floor_map.floor}] 标房间导航点「{clean_name}」({nav_node['x']:.1f}, {nav_node['y']:.1f})，待手动恢复走廊")
         return {"room": room, "nav_node": nav_node, "door_node_id": door_id or ""}
 
+    def bind_elevator(
+        self,
+        floor_map: IndoorFloorMap,
+        *,
+        elevator_id: str,
+        door_x: float,
+        door_y: float,
+        cabin_x: float,
+        cabin_y: float,
+        floor_label: str = "",
+        name: str = "",
+        cabin_bounds_enu: list[float] | tuple[float, ...] | None = None,
+        door_bounds_enu: list[float] | tuple[float, ...] | None = None,
+        elevation_y: float | None = None,
+        facing: str = "",
+    ) -> dict[str, Any]:
+        """One-click bind a native Mod elevator station into this floor's offline IndoorFloorMap."""
+        self.active_indoor_id = floor_map.indoor_id
+        elev = floor_map.upsert_elevator(
+            elevator_id=elevator_id,
+            name=name or self.elevator_name,
+            floor_label=floor_label or floor_map.floor,
+            door_x=door_x,
+            door_y=door_y,
+            cabin_x=cabin_x,
+            cabin_y=cabin_y,
+            cabin_bounds_enu=cabin_bounds_enu,
+            door_bounds_enu=door_bounds_enu,
+            elevation_y=elevation_y,
+            facing=facing,
+        )
+        self.pending_elevator_door_node_id = None
+        self.last_door_node_id = elev["door_node_id"]
+        self.last_corridor_node_id = elev["door_node_id"]
+        self.last_corridor_xy = (elev["door_x"], elev["door_y"])
+        self.last_heading = None
+        self._log(
+            f"[{floor_map.building_name or floor_map.building_id} {floor_map.floor}] "
+            f"已绑定电梯「{elev['name']}」({elev['elevator_id'] or '手动'}, 候梯口={elev['door_x']:.1f},{elev['door_y']:.1f})"
+        )
+        return elev
+
+    def mark_elevator_door(
+        self,
+        floor_map: IndoorFloorMap,
+        x: float,
+        y: float,
+        *,
+        name: str = "",
+        elevator_id: str = "",
+    ) -> dict[str, Any]:
+        """Dedicated manual step 1: mark elevator waiting hall point outside the landing door."""
+        self.active_indoor_id = floor_map.indoor_id
+        if name.strip():
+            self.elevator_name = name.strip()
+        if elevator_id.strip():
+            self.elevator_id = elevator_id.strip()
+        door_label = f"{self.elevator_name or '电梯'}候梯口"
+        door = floor_map.add_node(x, y, kind="room_door", label=door_label)
+        floor_map.attach_node_to_nearest_corridor(door, max_dist_m=15.0)
+        self.pending_elevator_door_node_id = door["id"]
+        self.last_door_node_id = door["id"]
+        self.last_corridor_node_id = door["id"]
+        self.last_corridor_xy = (door["x"], door["y"])
+        self.last_heading = None
+        self.state = "awaiting_elevator_cabin"
+        self._log(f"[{floor_map.floor}] 标电梯候梯口 {door['id']} ({door['x']:.1f}, {door['y']:.1f})，请进入轿厢标轿厢点")
+        return door
+
+    def mark_elevator_cabin(
+        self,
+        floor_map: IndoorFloorMap,
+        x: float,
+        y: float,
+        *,
+        name: str = "",
+        elevator_id: str = "",
+        floor_label: str = "",
+        elevation_y: float | None = None,
+    ) -> dict[str, Any]:
+        """Dedicated manual step 2: mark elevator cabin center & create dedicated elevator entity."""
+        self.active_indoor_id = floor_map.indoor_id
+        clean_name = name.strip() or self.elevator_name.strip()
+        clean_eid = elevator_id.strip() or self.elevator_id.strip()
+        nodes = floor_map.node_map()
+        door_id = (
+            self.pending_elevator_door_node_id
+            if (self.pending_elevator_door_node_id in nodes)
+            else None
+        )
+        if door_id is None:
+            near_d, _ = floor_map.find_nearest_node(
+                x, y, max_dist_m=15.0, kinds={"room_door", "corridor", "entrance"}
+            )
+            door_id = near_d["id"] if near_d is not None else ""
+        door_xy = (
+            (float(nodes[door_id]["x"]), float(nodes[door_id]["y"]))
+            if door_id and door_id in nodes
+            else (float(x), float(y))
+        )
+        elev = floor_map.upsert_elevator(
+            elevator_id=clean_eid,
+            name=clean_name,
+            floor_label=floor_label or floor_map.floor,
+            door_x=door_xy[0],
+            door_y=door_xy[1],
+            cabin_x=float(x),
+            cabin_y=float(y),
+            door_node_id=door_id or "",
+            elevation_y=elevation_y,
+        )
+        self.pending_elevator_door_node_id = None
+        if elev["door_node_id"]:
+            self.last_door_node_id = elev["door_node_id"]
+        self.elevator_name = ""
+        self.elevator_id = ""
+        self.state = "in_room_paused"
+        self._log(
+            f"[{floor_map.floor}] 已添加电梯「{elev['name']}」({elev['elevator_id'] or '未指定ID'})，待手动恢复走廊"
+        )
+        return {"elevator": elev, "door_node_id": elev["door_node_id"], "cabin_node_id": elev["cabin_node_id"]}
+
     def pause_corridor(self) -> dict[str, Any]:
         if self.state != "idle":
             self.state = "in_room_paused"
@@ -819,8 +1218,29 @@ class IndoorFloorSurveyRecorder:
                     )
                     changed = True
                     auto_saved = True
+            elif action == "bind_elevator":
+                extra = mark_event.get("extra") or {}
+                elev_id = str(extra.get("elevator_id") or "").strip()
+                if elev_id:
+                    self.bind_elevator(
+                        floor_map,
+                        elevator_id=elev_id,
+                        floor_label=str(extra.get("floor_label") or floor_map.floor),
+                        door_x=float(extra.get("door_x", mx)),
+                        door_y=float(extra.get("door_y", my)),
+                        cabin_x=float(extra.get("cabin_x", mx)),
+                        cabin_y=float(extra.get("cabin_y", my)),
+                        cabin_bounds_enu=extra.get("cabin_bounds_enu"),
+                        door_bounds_enu=extra.get("door_bounds_enu"),
+                        elevation_y=extra.get("elevation_y", mup),
+                        facing=str(extra.get("facing") or ""),
+                    )
+                    changed = True
+                    auto_saved = True
             elif action == "mark_step":
-                if self.state == "awaiting_room_nav":
+                if self.state == "awaiting_elevator_cabin":
+                    self.mark_elevator_cabin(floor_map, mx, my, elevation_y=mup)
+                elif self.state == "awaiting_room_nav":
                     self.mark_room_nav(floor_map, mx, my)
                 else:
                     self.mark_room_door(floor_map, mx, my)

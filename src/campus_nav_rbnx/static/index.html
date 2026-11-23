@@ -423,6 +423,18 @@
         <button id="btnCancelNav" class="danger" type="button" disabled>取消导航</button>
         <button id="btnClearBlocked" type="button" style="display:none">清除封路</button>
       </div>
+      <div class="row" style="margin-top:6px;font-size:11.5px;align-items:center;gap:4px;flex-wrap:wrap;">
+        <span style="color:var(--muted);font-weight:600;" title="调整室外全局路径下发短期导航点的步长粒度（无需重绘地图、实时生效）">室外粒度:</span>
+        <button id="btnGranFine" type="button" style="padding:3px 6px;font-size:11px;">精细5m</button>
+        <button id="btnGranCity" type="button" style="padding:3px 6px;font-size:11px;">城市8m</button>
+        <button id="btnGranWide" type="button" style="padding:3px 6px;font-size:11px;">园区14m</button>
+        <input id="inputLookahead" type="number" min="3" max="25" step="0.5" value="14" title="室外短期点前瞻距离 (m)" style="width:52px;padding:3px 5px;font-size:11.5px;" />
+        <span style="color:var(--muted);">m</span>
+        <label style="display:inline-flex;align-items:center;gap:3px;color:var(--muted);cursor:pointer;" title="开启后室外遇到急转街角会先把短期点落到路口拐点，防止斜切墙角">
+          <input id="chkOutdoorCornerClamp" type="checkbox" checked />
+          街角卡点
+        </label>
+      </div>
       <div class="nav-status">
         <div>状态：<strong id="navState">IDLE</strong> · <span id="navProgress">--</span></div>
         <div id="navDetail">选择地点或点击「地图选点前往」，底层由 64×64 m 滚动局部地图分段避障执行</div>
@@ -477,7 +489,8 @@
         <button data-tool="draw_area" type="button">画建筑/地块</button>
         <button data-tool="add_poi" type="button">放地标</button>
         <button data-tool="delete" type="button">🧹 橡皮擦</button>
-        <button id="btnUndo" type="button">↩ 撤销</button>
+        <button id="btnUndo" type="button" title="撤回上一步（标建筑角点时优先撤回最后一个角点，快捷键 Ctrl+Z）">↩ 撤销</button>
+        <button id="btnRedo" type="button" title="恢复刚才撤销的操作（快捷键 Ctrl+Y）">↪ 重做</button>
       </div>
 
       <div class="section-title">新建要素属性</div>
@@ -582,8 +595,27 @@
           <button id="btnIndoorStop" type="button" style="flex:1">结束室内建图</button>
         </div>
         <div style="margin-top:5px;font-size:11px;color:var(--muted);">
-          Shift+右键=大门/电梯口设出口并归零里程计 · 普通右键=门口标「房间门口点」(暂停走廊)→进房标「房间导航点」 · 拿室内建图仪右键墙上 ArUco 标牌即可一键绑定定位标牌。
+          Shift+右键=大门/电梯口设出口并归零里程计 · 普通右键=门口标「房间门口点」(暂停走廊)→进房标「房间导航点」 · 拿室内建图仪右键墙上 ArUco 标牌或电梯基座即可一键离线绑定。
         </div>
+      </div>
+
+      <div class="section-title">🛗 电梯专用绑定（独立于房间 · 运行期零坐标查询）</div>
+      <div class="survey-box" style="background: rgba(79, 70, 229, 0.07); border-color: rgba(79, 70, 229, 0.45);">
+        <div class="row" style="margin-top:0">
+          <input id="indoorElevatorName" type="text" placeholder="电梯名称（如 主电梯、东翼电梯）" style="flex:1" />
+          <input id="indoorElevatorId" type="text" placeholder="电梯ID（右键自动填）" style="width:130px" />
+        </div>
+        <div class="form-grid">
+          <button id="btnIndoorMarkElevDoor" type="button">🛗 标电梯候梯口</button>
+          <button id="btnIndoorMarkElevCabin" type="button">🛗 标电梯轿厢点</button>
+        </div>
+        <div class="row">
+          <button id="btnIndoorMarkStairs" type="button" style="flex:1">🪜 标本层楼梯口（同楼跨层步行连通）</button>
+        </div>
+        <div style="margin-top:5px;font-size:11px;color:var(--muted);">
+          推荐：持室内建图仪直接在游戏内右键「电梯层站基座」，自动绑定电梯 ID、候梯口与轿厢范围；也可点击上方按钮手动标点。
+        </div>
+        <div id="elevatorList" class="area-list" style="margin-top:6px;max-height:110px;"></div>
       </div>
 
       <div class="section-title">室内图快捷工具</div>
@@ -591,6 +623,7 @@
         <button data-tool="select" class="active" type="button">选择/查看</button>
         <button data-tool="delete" type="button">🧹 橡皮擦</button>
         <button id="btnUndoIndoor" type="button">↩ 撤销</button>
+        <button id="btnRedoIndoor" type="button">↪ 重做</button>
       </div>
 
       <div class="section-title">当前楼层房间列表（点击定位、命名、导航）</div>
@@ -668,6 +701,7 @@
     const editAreaName = document.getElementById('editAreaName');
     const editAreaKind = document.getElementById('editAreaKind');
     const roomPoiListEl = document.getElementById('roomPoiList');
+    const elevatorListEl = document.getElementById('elevatorList');
     const poiRenameBox = document.getElementById('poiRenameBox');
     const editPoiName = document.getElementById('editPoiName');
     const btnNavPoiDoor = document.getElementById('btnNavPoiDoor');
@@ -717,7 +751,9 @@
     let activeIndoorId = '';
     let activeIndoorMap = null;
     let undoStack = [];
+    let redoStack = [];
     let indoorUndoStack = [];
+    let indoorRedoStack = [];
     let activeEditorWindow = ''; // '' | 'outdoor' | 'indoor'
     let editOpen = false;
     let darkTheme = false;
@@ -755,14 +791,21 @@
       return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
     }
 
+    function isIndoorEditing() {
+      if (activeEditorWindow === 'outdoor') return false;
+      return Boolean(activeIndoorId && activeIndoorMap);
+    }
+
     function pushUndo() {
-      if (activeIndoorId && activeIndoorMap) {
+      if (isIndoorEditing()) {
         indoorUndoStack.push(JSON.stringify(activeIndoorMap));
         if (indoorUndoStack.length > 30) indoorUndoStack.shift();
+        indoorRedoStack = [];
         return;
       }
       undoStack.push(JSON.stringify(mapData));
       if (undoStack.length > 30) undoStack.shift();
+      redoStack = [];
     }
 
     async function commitIndoorToServer(save = true) {
@@ -790,7 +833,7 @@
     }
 
     async function commitActiveMapToServer(save = true) {
-      if (activeIndoorId && activeIndoorMap) return await commitIndoorToServer(save);
+      if (isIndoorEditing()) return await commitIndoorToServer(save);
       return await commitMapToServer(save);
     }
 
@@ -890,7 +933,7 @@
     }
 
     function eraseAt(wx, wy, radiusM) {
-      if (activeIndoorId && activeIndoorMap) {
+      if (isIndoorEditing()) {
         const markers = activeIndoorMap.markers || [];
         let bestMk = null, bestMD = radiusM * 1.3;
         for (const mk of markers) {
@@ -902,6 +945,33 @@
           activeIndoorMap.markers = markers.filter(m => m.marker_id !== bestMk.marker_id);
           erasedInStroke++;
           return `视觉标牌 #${bestMk.marker_id}`;
+        }
+        const stairs = activeIndoorMap.stairs || [];
+        let bestSt = null, bestStD = radiusM * 1.4;
+        for (const st of stairs) {
+          const d = Math.hypot(st.x - wx, st.y - wy);
+          if (d < bestStD) { bestSt = st; bestStD = d; }
+        }
+        if (bestSt) {
+          if (erasedInStroke === 0) pushUndo();
+          activeIndoorMap.stairs = stairs.filter(item => item.id !== bestSt.id);
+          erasedInStroke++;
+          return `楼梯「${bestSt.name}」`;
+        }
+        const elevators = activeIndoorMap.elevators || [];
+        let bestEl = null, bestElD = radiusM * 1.5;
+        for (const el of elevators) {
+          const d = Math.min(
+            Math.hypot((el.cabin_x ?? el.door_x) - wx, (el.cabin_y ?? el.door_y) - wy),
+            Math.hypot((el.door_x ?? el.cabin_x) - wx, (el.door_y ?? el.cabin_y) - wy)
+          );
+          if (d < bestElD) { bestEl = el; bestElD = d; }
+        }
+        if (bestEl) {
+          if (erasedInStroke === 0) pushUndo();
+          activeIndoorMap.elevators = elevators.filter(item => item.id !== bestEl.id);
+          erasedInStroke++;
+          return `电梯「${bestEl.name}」`;
         }
         const rooms = activeIndoorMap.rooms || [];
         let bestRoom = null, bestRD = radiusM * 1.3;
@@ -1170,6 +1240,11 @@
             ctx.fillStyle = '#10b981';
             ctx.beginPath(); ctx.arc(sx, sy, 6 * dpr, 0, Math.PI * 2); ctx.fill();
             ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+          } else if (nk === 'elevator') {
+            const r = 6.5 * dpr;
+            ctx.fillStyle = '#4f46e5';
+            ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2 * dpr; ctx.strokeRect(sx - r, sy - r, r * 2, r * 2);
           } else if (editOpen) {
             ctx.fillStyle = '#0284c7';
             ctx.beginPath(); ctx.arc(sx, sy, 3.8 * dpr, 0, Math.PI * 2); ctx.fill();
@@ -1183,6 +1258,48 @@
           ctx.fillStyle = darkTheme ? '#a7f3d0' : '#065f46';
           ctx.font = `600 ${Math.round(12.5 * dpr)}px sans-serif`;
           ctx.fillText(`🛋️ ${r.name}`, sx + 9 * dpr, sy + 4 * dpr);
+          ctx.restore();
+        }
+        // Render dedicated floor elevators (shaft bounds + doorway strip + badge)
+        for (const el of (activeIndoorMap.elevators || [])) {
+          ctx.save();
+          if (Array.isArray(el.cabin_bounds_enu) && el.cabin_bounds_enu.length >= 4) {
+            const [x0, x1, y0, y1] = el.cabin_bounds_enu;
+            const [sx0, sy0] = w2s(x0, y1);
+            const [sx1, sy1] = w2s(x1, y0);
+            ctx.fillStyle = 'rgba(79, 70, 229, 0.16)';
+            ctx.strokeStyle = '#4f46e5';
+            ctx.lineWidth = 1.8 * dpr;
+            ctx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+            ctx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+          }
+          if (Array.isArray(el.door_bounds_enu) && el.door_bounds_enu.length >= 4) {
+            const [x0, x1, y0, y1] = el.door_bounds_enu;
+            const [sx0, sy0] = w2s(x0, y1);
+            const [sx1, sy1] = w2s(x1, y0);
+            ctx.fillStyle = 'rgba(14, 165, 233, 0.24)';
+            ctx.strokeStyle = '#0284c7';
+            ctx.lineWidth = 1.3 * dpr;
+            ctx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+            ctx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+          }
+          const [cx, cy] = w2s(el.cabin_x ?? el.door_x ?? 0, el.cabin_y ?? el.door_y ?? 0);
+          ctx.fillStyle = darkTheme ? '#c7d2fe' : '#3730a3';
+          ctx.font = `700 ${Math.round(12 * dpr)}px sans-serif`;
+          const eidTag = el.elevator_id ? ` [${el.elevator_id}]` : '';
+          ctx.fillText(`🛗 ${el.name || '电梯'}${eidTag}`, cx + 9 * dpr, cy + 4 * dpr);
+          ctx.restore();
+        }
+        // Render walkable staircase landings
+        for (const st of (activeIndoorMap.stairs || [])) {
+          const [sx, sy] = w2s(st.x, st.y);
+          ctx.save();
+          ctx.fillStyle = '#0ea5e9';
+          ctx.beginPath(); ctx.arc(sx, sy, 6 * dpr, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.8 * dpr; ctx.stroke();
+          ctx.fillStyle = darkTheme ? '#bae6fd' : '#0369a1';
+          ctx.font = `700 ${Math.round(12 * dpr)}px sans-serif`;
+          ctx.fillText(`🪜 ${st.name || '楼梯'}`, sx + 9 * dpr, sy + 4 * dpr);
           ctx.restore();
         }
         // Render bound ArUco wall markers (purple badge + outward normal arrow)
@@ -1533,6 +1650,16 @@
       const nav = data.navigation || {};
       const st = nav.state || 'IDLE';
       document.getElementById('navState').textContent = st;
+      if (data.nav_tuning) {
+        const la = Number(data.nav_tuning.lookahead_m || 14);
+        const inp = document.getElementById('inputLookahead');
+        const chk = document.getElementById('chkOutdoorCornerClamp');
+        if (inp && document.activeElement !== inp) inp.value = String(la);
+        if (chk) chk.checked = Boolean(data.nav_tuning.outdoor_corner_clamp);
+        document.getElementById('btnGranFine')?.classList.toggle('active', Math.abs(la - 5) < 0.3);
+        document.getElementById('btnGranCity')?.classList.toggle('active', Math.abs(la - 8) < 0.3);
+        document.getElementById('btnGranWide')?.classList.toggle('active', Math.abs(la - 14) < 0.3);
+      }
       const active = st === 'RUNNING' || st === 'PENDING';
       btnCancelNav.disabled = !(active || reloc.active);
       btnClearBlocked.style.display = (nav.blocked_edges && nav.blocked_edges.length) ? 'inline-block' : 'none';
@@ -1581,8 +1708,9 @@
       }
       const INDOOR_STATE_LABELS = {
         idle: '未开始（请在大门 Shift+右键 设建筑出口点）',
-        corridor: '走廊自动打点中（走到房门口右键标「房间门口点」）',
+        corridor: '走廊自动打点中（走到房门口右键标「房间门口点」，右键电梯基座可一键绑定电梯）',
         awaiting_room_nav: '已标房间门口点（走廊已暂停 · 进房右键标「房间导航点」）',
+        awaiting_elevator_cabin: '已标电梯候梯口（走廊已暂停 · 进轿厢右键或点「标电梯轿厢点」）',
         in_room_paused: '走廊打点已暂停（走回走廊后手动点「恢复走廊打点」）',
       };
       const ist = irec.state || 'idle';
@@ -1821,8 +1949,62 @@
         }
       }
 
-      // 2. Active indoor floor room list inside Indoor Mapping Window
+      // 2. Active indoor floor elevator list inside Indoor Mapping Window
       const inIndoor = Boolean(activeIndoorId && activeIndoorMap);
+      if (elevatorListEl) {
+        const elevs = inIndoor ? (activeIndoorMap.elevators || []) : [];
+        const eKey = `${activeIndoorId}|` + elevs.map(e => `${e.id}:${e.name}:${e.elevator_id || ''}:${e.floor_label || ''}`).join('|');
+        if (elevatorListEl.dataset.key !== eKey) {
+          elevatorListEl.dataset.key = eKey;
+          elevatorListEl.innerHTML = '';
+          if (!elevs.length) {
+            elevatorListEl.innerHTML = inIndoor
+              ? '<div style="font-size:11px;color:var(--muted);padding:3px 2px;">本层尚未绑定电梯（拿室内建图仪右键电梯基座可一键绑定）</div>'
+              : '<div style="font-size:11px;color:var(--muted);padding:3px 2px;">进入具体楼层后可查看/绑定本层电梯</div>';
+          } else {
+            elevs.forEach((el) => {
+              const div = document.createElement('div');
+              div.className = 'area-item';
+              const eidTxt = el.elevator_id || '未填ID';
+              const boxTag = Array.isArray(el.cabin_bounds_enu) ? '含范围' : '手标';
+              div.innerHTML = `<span>🛗 ${el.name || '电梯'} <code style="font-size:10px">${eidTxt}</code></span><span style="font-size:11px;color:var(--muted)">${el.floor_label || el.floor || ''}·${boxTag} · 点此编辑</span>`;
+              div.addEventListener('click', async () => {
+                camX = el.cabin_x ?? el.door_x ?? 0;
+                camY = el.cabin_y ?? el.door_y ?? 0;
+                render();
+                const action = prompt(
+                  `编辑电梯「${el.name}」(ID=${eidTxt})：\n输入新名称（或输入 "id:elev_x_z" 修改控制器ID，输入 "DEL" 删除）：`,
+                  el.name || '电梯'
+                );
+                if (action === null) return;
+                const val = action.trim();
+                if (!val) return;
+                pushUndo();
+                if (val.toUpperCase() === 'DEL') {
+                  activeIndoorMap.elevators = (activeIndoorMap.elevators || []).filter(item => item.id !== el.id);
+                  await commitActiveMapToServer(true);
+                  elevatorListEl.dataset.key = '';
+                  showToast(true, `已删除电梯「${el.name}」`);
+                  poll();
+                  return;
+                }
+                if (val.toLowerCase().startsWith('id:')) {
+                  el.elevator_id = val.slice(3).trim();
+                } else {
+                  el.name = val;
+                }
+                await commitActiveMapToServer(true);
+                elevatorListEl.dataset.key = '';
+                showToast(true, `已更新电梯「${el.name}」(${el.elevator_id || '无ID'})`);
+                poll();
+              });
+              elevatorListEl.appendChild(div);
+            });
+          }
+        }
+      }
+
+      // 3. Active indoor floor room list inside Indoor Mapping Window
       const pois = inIndoor ? (activeIndoorMap.rooms || []) : [];
       const key = `${activeIndoorId}|${selectedPoiId || ''}|` + pois.map(p => `${p.id}:${p.name}:${p.category}:${p.door_node_id || ''}`).join('|');
       if (roomPoiListEl.dataset.key === key) return;
@@ -1926,7 +2108,10 @@
         modeBanner.textContent = '放地标：左键点击地图放置 POI 地点';
         modeBanner.style.display = 'block';
       } else if (tool === 'pick_goal') {
-        modeBanner.textContent = '地图选点导航：点击园区地图任意位置，机器人将分段规划前往';
+        const floorHint = activeIndoorMap
+          ? `${activeIndoorMap.building_name || ''} ${activeIndoorMap.floor || ''}`.trim()
+          : '室外园区';
+        modeBanner.textContent = `地图选点导航（目标楼层：${floorHint}）：点击地图任意位置，机器人将分段规划前往`;
         modeBanner.style.display = 'block';
       } else if (rec && rec.active) {
         if (rec.mode === 'area') {
@@ -2001,6 +2186,32 @@
       poll();
     });
 
+    async function applyNavTuning(lookaheadM, advanceRadiusM, outdoorCornerClamp) {
+      const payload = {};
+      if (lookaheadM != null) payload.lookahead_m = Number(lookaheadM);
+      if (advanceRadiusM != null) payload.advance_radius_m = Number(advanceRadiusM);
+      if (outdoorCornerClamp != null) payload.outdoor_corner_clamp = Boolean(outdoorCornerClamp);
+      const r = await fetch('/api/navigate/tuning', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      showToast(Boolean(r.ok && d.ok), d.detail || '已更新导航粒度');
+      poll();
+    }
+    document.getElementById('btnGranFine').addEventListener('click', () => applyNavTuning(5.0, 2.0, null));
+    document.getElementById('btnGranCity').addEventListener('click', () => applyNavTuning(8.0, 3.0, null));
+    document.getElementById('btnGranWide').addEventListener('click', () => applyNavTuning(14.0, 4.5, null));
+    document.getElementById('inputLookahead').addEventListener('change', (e) => {
+      const la = Math.max(3.0, Math.min(25.0, Number(e.target.value) || 8.0));
+      const adv = Math.max(1.2, Math.min(6.0, Number((la * 0.35).toFixed(1))));
+      applyNavTuning(la, adv, null);
+    });
+    document.getElementById('chkOutdoorCornerClamp').addEventListener('change', (e) => {
+      applyNavTuning(null, null, Boolean(e.target.checked));
+    });
+
     async function setEditorWindow(win, notifyServer = true) {
       activeEditorWindow = win || '';
       editOpen = Boolean(activeEditorWindow);
@@ -2046,6 +2257,7 @@
     document.getElementById('btnCloseOutdoor').addEventListener('click', () => setEditorWindow('', true));
     document.getElementById('btnCloseIndoor').addEventListener('click', () => setEditorWindow('', true));
     document.getElementById('btnUndoIndoor').addEventListener('click', () => document.getElementById('btnUndo').click());
+    document.getElementById('btnRedoIndoor').addEventListener('click', () => document.getElementById('btnRedo').click());
     btnSaveIndoor.addEventListener('click', async () => {
       if (!activeIndoorMap) { showToast(false, '请先进入一个室内楼层'); return; }
       btnSaveIndoor.disabled = true;
@@ -2075,18 +2287,58 @@
     });
 
     document.getElementById('btnUndo').addEventListener('click', async () => {
-      if (activeIndoorId && activeIndoorMap) {
+      if (isIndoorEditing()) {
         if (!indoorUndoStack.length) { showToast(false, '本层没有可撤销的操作'); return; }
+        indoorRedoStack.push(JSON.stringify(activeIndoorMap));
+        if (indoorRedoStack.length > 30) indoorRedoStack.shift();
         activeIndoorMap = JSON.parse(indoorUndoStack.pop());
         await commitIndoorToServer(true);
-        showToast(true, '已撤销本层上一步编辑');
+        showToast(true, '已撤销本层上一步编辑（可点「↪ 重做」恢复）');
         render();
         return;
       }
+      if (areaDraftManual.length > 0) {
+        areaDraftManual.pop();
+        if (areaDraftManual.length < 3) btnClosePolyManual.style.display = 'none';
+        updateBanner();
+        showToast(true, `已撤回上一个手绘建筑角点（剩余 ${areaDraftManual.length} 点）`);
+        render();
+        return;
+      }
+      const surveyDraft = (state && state.survey && state.survey.recorder && state.survey.recorder.area_draft) || [];
+      if (surveyDraft.length > 0) {
+        const resp = await fetch('/api/survey/undo_draft_point', { method: 'POST' });
+        const d = await resp.json();
+        showToast(Boolean(resp.ok && d.ok), d.ok ? `已撤回上一个测绘角点（剩余 ${d.remaining} 点）` : (d.detail || '撤回失败'));
+        poll();
+        return;
+      }
       if (!undoStack.length) { showToast(false, '没有可撤销的操作'); return; }
+      redoStack.push(JSON.stringify(mapData));
+      if (redoStack.length > 30) redoStack.shift();
       mapData = JSON.parse(undoStack.pop());
       await commitMapToServer(true);
-      showToast(true, '已撤销上一步编辑');
+      showToast(true, '已撤销上一步编辑（可点「↪ 重做」恢复）');
+      render();
+    });
+
+    document.getElementById('btnRedo').addEventListener('click', async () => {
+      if (isIndoorEditing()) {
+        if (!indoorRedoStack.length) { showToast(false, '本层没有可重做的操作'); return; }
+        indoorUndoStack.push(JSON.stringify(activeIndoorMap));
+        if (indoorUndoStack.length > 30) indoorUndoStack.shift();
+        activeIndoorMap = JSON.parse(indoorRedoStack.pop());
+        await commitIndoorToServer(true);
+        showToast(true, '已重做恢复本层编辑');
+        render();
+        return;
+      }
+      if (!redoStack.length) { showToast(false, '没有可重做的操作'); return; }
+      undoStack.push(JSON.stringify(mapData));
+      if (undoStack.length > 30) undoStack.shift();
+      mapData = JSON.parse(redoStack.pop());
+      await commitMapToServer(true);
+      showToast(true, '已重做恢复上一步编辑');
       render();
     });
 
@@ -2396,6 +2648,60 @@
       }
       poll();
     });
+    document.getElementById('btnIndoorMarkElevDoor').addEventListener('click', async () => {
+      const resp = await fetch('/api/indoor/mark_elevator_door', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          building_id: indoorBuildingSelect.value || '',
+          floor: indoorFloorSelect.value || '1F',
+          elevator_name: document.getElementById('indoorElevatorName').value.trim(),
+          elevator_id: document.getElementById('indoorElevatorId').value.trim(),
+        }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.ok ? '已标电梯候梯口并暂停走廊打点，请进入轿厢标「电梯轿厢点」' : (d.detail || '操作失败'));
+      poll();
+    });
+    document.getElementById('btnIndoorMarkElevCabin').addEventListener('click', async () => {
+      const resp = await fetch('/api/indoor/mark_elevator_cabin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          building_id: indoorBuildingSelect.value || '',
+          floor: indoorFloorSelect.value || '1F',
+          elevator_name: document.getElementById('indoorElevatorName').value.trim(),
+          elevator_id: document.getElementById('indoorElevatorId').value.trim(),
+        }),
+      });
+      const d = await resp.json();
+      if (resp.ok && d.ok) {
+        document.getElementById('indoorElevatorName').value = '';
+        const ename = (d.elevator && d.elevator.name) || '电梯';
+        showToast(true, `已添加专用电梯「${ename}」（回走廊后点「恢复走廊打点」）`);
+      } else {
+        showToast(false, d.detail || '操作失败');
+      }
+      poll();
+    });
+    document.getElementById('btnIndoorMarkStairs').addEventListener('click', async () => {
+      const stName = prompt('楼梯名称（同栋楼上下层填相同名称可自动跨层连通）：', '主楼梯');
+      if (stName === null) return;
+      const clean = stName.trim() || '主楼梯';
+      const resp = await fetch('/api/indoor/mark_stairs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          building_id: indoorBuildingSelect.value || '',
+          floor: indoorFloorSelect.value || '1F',
+          name: clean,
+          stairs_id: clean,
+        }),
+      });
+      const d = await resp.json();
+      showToast(Boolean(resp.ok && d.ok), d.ok ? `已标记楼梯口「${clean}」并关联走廊` : (d.detail || '操作失败'));
+      poll();
+    });
     btnIndoorCorridorToggle.addEventListener('click', async () => {
       const curState = state && state.survey && state.survey.indoor_recorder && state.survey.indoor_recorder.state;
       const action = curState === 'corridor' ? 'pause' : 'resume';
@@ -2516,7 +2822,10 @@
 
       if (tool === 'pick_goal') {
         setTool('select');
-        await startNavigation({ x: wx, y: wy });
+        const payload = activeIndoorId
+          ? { x: wx, y: wy, indoor_id: activeIndoorId }
+          : { x: wx, y: wy };
+        await startNavigation(payload);
         return;
       }
 
@@ -2663,13 +2972,16 @@
         await commitMapToServer(true);
       }
       if (erasing) {
-        erasing = false;
         if (erasedInStroke > 0) {
+          dirtyLocal = true;
+          erasing = false;
           const cnt = erasedInStroke;
           erasedInStroke = 0;
           await commitActiveMapToServer(true);
           showToast(true, `橡皮擦已擦除 ${cnt} 个要素（可点「↩ 撤销」恢复）`);
           render();
+        } else {
+          erasing = false;
         }
       }
       panning = false;
@@ -2683,6 +2995,19 @@
         btnClosePolyManual.style.display = 'none';
         if (tool === 'pick_goal') setTool('select');
         render();
+        return;
+      }
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          document.getElementById('btnUndo').click();
+        } else if (k === 'y' || (k === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          document.getElementById('btnRedo').click();
+        }
       }
     });
 

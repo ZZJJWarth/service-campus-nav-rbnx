@@ -7,12 +7,17 @@ import time
 from typing import Any
 
 
+def _wrap_angle(rad: float) -> float:
+    return (rad + math.pi) % (2.0 * math.pi) - math.pi
+
+
 class RtkOdomFusion:
-    """Tracks smooth offset T_campus_odom = (dx, dy) between campus_rtk and odom.
+    """Tracks smooth SE(2) offset T_campus_odom = (offset_x, offset_y, yaw_offset)
+    between campus_rtk (or indoor visual markers) and local minecraft_odom.
 
     When RTK is RTK_FIXED, updates offset with higher gain; on RTK_FLOAT uses
     gentle gain; during NO_FIX (indoors/under roof), freezes offset and coasts
-    seamlessly on local odom.
+    seamlessly on local odom until an ArUco visual marker re-anchors it.
     """
 
     def __init__(self, *, require_global_lock: bool = False) -> None:
@@ -20,6 +25,7 @@ class RtkOdomFusion:
         self.invalidated: bool = False
         self.offset_x: float = 0.0
         self.offset_y: float = 0.0
+        self.yaw_offset: float = 0.0
         self.initialized_from_rtk: bool = False
         self.localization_source: str = ""  # "" | "rtk" | "visual"
         self.odom_pose: tuple[float, float, float] | None = None  # x, y, yaw
@@ -62,6 +68,7 @@ class RtkOdomFusion:
         self.localization_source = ""
         self.offset_x = 0.0
         self.offset_y = 0.0
+        self.yaw_offset = 0.0
         self.rtk_pose = None
         self.rtk_wall = 0.0
         self.current_indoor_id = ""
@@ -88,14 +95,17 @@ class RtkOdomFusion:
         self.rtk_wall = time.time()
         if self.odom_pose is None:
             return
-        ox, oy, _ = self.odom_pose
-        meas_dx = east - ox
-        meas_dy = north - oy
+        ox, oy, oyaw = self.odom_pose
+        meas_dyaw = _wrap_angle(float(yaw) - oyaw)
+        c0, s0 = math.cos(meas_dyaw), math.sin(meas_dyaw)
+        meas_dx = float(east) - (c0 * ox - s0 * oy)
+        meas_dy = float(north) - (s0 * ox + c0 * oy)
         if not self.initialized_from_rtk:
             if sigma_xy > 2.0 or inside_multifloor_building:
                 # Inside a multi-floor building, 2D RTK through a window cannot identify the floor;
                 # wait for an indoor ArUco marker to establish floor + global lock.
                 return
+            self.yaw_offset = meas_dyaw
             self.offset_x = meas_dx
             self.offset_y = meas_dy
             self.initialized_from_rtk = True
@@ -118,8 +128,12 @@ class RtkOdomFusion:
             alpha = 0.08
         else:
             alpha = 0.02
-        self.offset_x = (1.0 - alpha) * self.offset_x + alpha * meas_dx
-        self.offset_y = (1.0 - alpha) * self.offset_y + alpha * meas_dy
+        self.yaw_offset = _wrap_angle(self.yaw_offset + alpha * _wrap_angle(meas_dyaw - self.yaw_offset))
+        cy, sy = math.cos(self.yaw_offset), math.sin(self.yaw_offset)
+        adj_dx = float(east) - (cy * ox - sy * oy)
+        adj_dy = float(north) - (sy * ox + cy * oy)
+        self.offset_x = (1.0 - alpha) * self.offset_x + alpha * adj_dx
+        self.offset_y = (1.0 - alpha) * self.offset_y + alpha * adj_dy
         self.localization_source = "rtk"
         if sigma_xy <= 0.15 and not inside_building and not recent_visual:
             # Strong truly-outdoor RTK_FIXED clears indoor floor tag.
@@ -174,17 +188,22 @@ class RtkOdomFusion:
             self.localization_source = "visual"
             return True
 
-        ox, oy, _ = self.odom_pose
-        meas_dx = float(east) - ox
-        meas_dy = float(north) - oy
+        ox, oy, oyaw = self.odom_pose
+        meas_dyaw = _wrap_angle(float(yaw) - oyaw)
         if not self.initialized_from_rtk:
-            self.offset_x = meas_dx
-            self.offset_y = meas_dy
+            self.yaw_offset = meas_dyaw
+            cy, sy = math.cos(self.yaw_offset), math.sin(self.yaw_offset)
+            self.offset_x = float(east) - (cy * ox - sy * oy)
+            self.offset_y = float(north) - (sy * ox + cy * oy)
             self.initialized_from_rtk = True
         else:
             alpha = 0.70 if distance_m <= 4.0 else 0.45
-            self.offset_x = (1.0 - alpha) * self.offset_x + alpha * meas_dx
-            self.offset_y = (1.0 - alpha) * self.offset_y + alpha * meas_dy
+            self.yaw_offset = _wrap_angle(self.yaw_offset + alpha * _wrap_angle(meas_dyaw - self.yaw_offset))
+            cy, sy = math.cos(self.yaw_offset), math.sin(self.yaw_offset)
+            adj_dx = float(east) - (cy * ox - sy * oy)
+            adj_dy = float(north) - (sy * ox + cy * oy)
+            self.offset_x = (1.0 - alpha) * self.offset_x + alpha * adj_dx
+            self.offset_y = (1.0 - alpha) * self.offset_y + alpha * adj_dy
         self.invalidated = False
         self.localization_source = "visual"
         return True
@@ -194,16 +213,22 @@ class RtkOdomFusion:
             return None
         if self.odom_pose is not None:
             ox, oy, oyaw = self.odom_pose
-            return (ox + self.offset_x, oy + self.offset_y, oyaw)
+            cx, cy = self.odom_to_campus(ox, oy)
+            return (cx, cy, _wrap_angle(oyaw + self.yaw_offset))
         if self.rtk_pose is not None:
             return self.rtk_pose
         return None
 
     def campus_to_odom(self, cx: float, cy: float) -> tuple[float, float]:
-        return (float(cx) - self.offset_x, float(cy) - self.offset_y)
+        dx = float(cx) - self.offset_x
+        dy = float(cy) - self.offset_y
+        c, s = math.cos(self.yaw_offset), math.sin(self.yaw_offset)
+        return (c * dx + s * dy, -s * dx + c * dy)
 
     def odom_to_campus(self, ox: float, oy: float) -> tuple[float, float]:
-        return (float(ox) + self.offset_x, float(oy) + self.offset_y)
+        c, s = math.cos(self.yaw_offset), math.sin(self.yaw_offset)
+        x, y = float(ox), float(oy)
+        return (self.offset_x + c * x - s * y, self.offset_y + s * x + c * y)
 
     def snapshot(self) -> dict[str, Any]:
         pose = self.campus_pose()

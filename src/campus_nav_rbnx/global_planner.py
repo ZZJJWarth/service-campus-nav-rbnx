@@ -29,20 +29,29 @@ class RouteLeg:
     goal_xy: tuple[float, float] | None = None
     goal_node_id: str = ""
     # Elevator leg fields
+    elevator_id: str = ""
     building_id: str = ""
     building_name: str = ""
     from_indoor_id: str = ""
     from_floor: str = ""
+    from_floor_label: str = ""
     from_door_xy: tuple[float, float] | None = None
     from_cabin_xy: tuple[float, float] | None = None
     from_door_node_id: str = ""
     from_cabin_node_id: str = ""
+    from_cabin_bounds_enu: tuple[float, float, float, float] | None = None
+    from_door_bounds_enu: tuple[float, float, float, float] | None = None
+    from_elevation_y: float | None = None
     to_indoor_id: str = ""
     to_floor: str = ""
+    to_floor_label: str = ""
     to_door_xy: tuple[float, float] | None = None
     to_cabin_xy: tuple[float, float] | None = None
     to_door_node_id: str = ""
     to_cabin_node_id: str = ""
+    to_cabin_bounds_enu: tuple[float, float, float, float] | None = None
+    to_door_bounds_enu: tuple[float, float, float, float] | None = None
+    to_elevation_y: float | None = None
 
 
 @dataclass(frozen=True)
@@ -79,9 +88,58 @@ def _floor_number(floor_label: str) -> int:
     return 1
 
 
-def find_elevator_binding(floor_map: Any) -> dict[str, Any] | None:
-    """Locate the elevator room (waiting door + cabin nav node) on an IndoorFloorMap."""
+def _to_box4(raw: Any) -> tuple[float, float, float, float] | None:
+    if isinstance(raw, (list, tuple)) and len(raw) >= 4:
+        return (float(raw[0]), float(raw[1]), float(raw[2]), float(raw[3]))
+    return None
+
+
+def find_elevator_bindings(floor_map: Any) -> list[dict[str, Any]]:
+    """Locate all elevator shafts on an IndoorFloorMap.
+
+    Priority:
+    1. Dedicated `floor_map.elevators` entries (bound via indoor_mapper right-click or 8093 UI).
+    2. Legacy fallback: rooms named '电梯'/'elevator'/'lift' or standalone `kind == 'elevator'` nodes.
+    """
     nodes = floor_map.node_map()
+    fm_elev_y = getattr(floor_map, "elevation_y", None)
+    fm_floor = str(getattr(floor_map, "floor", "") or "")
+    out: list[dict[str, Any]] = []
+
+    for el in getattr(floor_map, "elevators", []) or []:
+        if not isinstance(el, dict):
+            continue
+        cabin_nid = str(el.get("cabin_node_id") or "")
+        door_nid = str(el.get("door_node_id") or "")
+        cabin_node = nodes.get(cabin_nid)
+        door_node = nodes.get(door_nid)
+        if cabin_node is None and door_node is None:
+            continue
+        if cabin_node is None:
+            cabin_node = door_node
+            cabin_nid = door_nid
+        if door_node is None:
+            door_node = cabin_node
+            door_nid = cabin_nid
+        elev_y = el.get("elevation_y")
+        out.append({
+            "elevator": el,
+            "room": None,
+            "elevator_id": str(el.get("elevator_id") or "").strip(),
+            "name": str(el.get("name") or "电梯"),
+            "floor_label": str(el.get("floor_label") or fm_floor),
+            "door_node_id": door_nid,
+            "cabin_node_id": cabin_nid,
+            "door_xy": (float(door_node["x"]), float(door_node["y"])),
+            "cabin_xy": (float(cabin_node["x"]), float(cabin_node["y"])),
+            "cabin_bounds_enu": _to_box4(el.get("cabin_bounds_enu")),
+            "door_bounds_enu": _to_box4(el.get("door_bounds_enu")),
+            "elevation_y": float(elev_y) if elev_y is not None else (float(fm_elev_y) if fm_elev_y is not None else None),
+        })
+    if out:
+        return out
+
+    # Legacy fallback: room named 电梯 / elevator / lift
     for r in getattr(floor_map, "rooms", []) or []:
         names = [str(r.get("name") or ""), *(str(a) for a in (r.get("aliases") or []))]
         if any(kw in n.lower() for n in names for kw in ELEVATOR_KEYWORDS):
@@ -97,25 +155,48 @@ def find_elevator_binding(floor_map: Any) -> dict[str, Any] | None:
             if door_node is None:
                 door_node = cabin_node
                 door_nid = cabin_nid
-            return {
+            out.append({
+                "elevator": None,
                 "room": r,
+                "elevator_id": "",
+                "name": str(r.get("name") or "电梯"),
+                "floor_label": fm_floor,
                 "door_node_id": door_nid,
                 "cabin_node_id": cabin_nid,
                 "door_xy": (float(door_node["x"]), float(door_node["y"])),
                 "cabin_xy": (float(cabin_node["x"]), float(cabin_node["y"])),
-            }
-    # Fallback: explicit node with kind == 'elevator'
+                "cabin_bounds_enu": None,
+                "door_bounds_enu": None,
+                "elevation_y": float(fm_elev_y) if fm_elev_y is not None else None,
+            })
+    if out:
+        return out
+
+    # Legacy fallback: explicit node with kind == 'elevator'
     for n in getattr(floor_map, "nodes", []) or []:
         if n.get("kind") == "elevator":
             xy = (float(n["x"]), float(n["y"]))
-            return {
+            out.append({
+                "elevator": None,
                 "room": None,
+                "elevator_id": "",
+                "name": str(n.get("label") or "电梯"),
+                "floor_label": fm_floor,
                 "door_node_id": n["id"],
                 "cabin_node_id": n["id"],
                 "door_xy": xy,
                 "cabin_xy": xy,
-            }
-    return None
+                "cabin_bounds_enu": None,
+                "door_bounds_enu": None,
+                "elevation_y": float(fm_elev_y) if fm_elev_y is not None else None,
+            })
+    return out
+
+
+def find_elevator_binding(floor_map: Any) -> dict[str, Any] | None:
+    """Locate the primary elevator binding (waiting door + cabin nav node) on an IndoorFloorMap."""
+    bindings = find_elevator_bindings(floor_map)
+    return bindings[0] if bindings else None
 
 
 def _build_polyline_route(
@@ -366,8 +447,9 @@ class GlobalPlanner:
 
         include_ids: set[str] = {fm.indoor_id for fm in indoor_maps if fm.nodes}
         out_node_ids = {n["id"] for n in outdoor_map.nodes}
-        elev_by_iid: dict[str, dict[str, Any]] = {}
-        floors_by_building: dict[str, list[Any]] = {}
+        elev_by_cabin: dict[str, dict[str, Any]] = {}
+        shafts_by_key: dict[tuple[str, str], list[tuple[Any, dict[str, Any]]]] = {}
+        stairs_by_key: dict[tuple[str, str], list[tuple[Any, dict[str, Any]]]] = {}
 
         for iid in sorted(include_ids):
             fm = by_id[iid]
@@ -406,30 +488,63 @@ class GlobalPlanner:
                         "bidirectional": True,
                     })
 
-            binding = find_elevator_binding(fm)
-            if binding is not None:
-                elev_by_iid[iid] = binding
-                floors_by_building.setdefault(fm.building_id, []).append(fm)
+            for binding in find_elevator_bindings(fm):
+                cabin_full = f"{prefix}{binding['cabin_node_id']}"
+                elev_by_cabin[cabin_full] = binding
+                shaft_key = (fm.building_id, binding.get("elevator_id") or "__default__")
+                shafts_by_key.setdefault(shaft_key, []).append((fm, binding))
 
-        # Connect all elevator-equipped floors within each building via virtual vertical edges.
-        for bid, fms in floors_by_building.items():
-            if len(fms) < 2:
+            # Collect dedicated walkable stairs landings per (building_id, stairs_id)
+            fm_nodes = fm.node_map()
+            for st in getattr(fm, "stairs", []) or []:
+                snid = str(st.get("node_id") or "")
+                if snid and snid in fm_nodes:
+                    skey = (fm.building_id, str(st.get("stairs_id") or "stairs_main"))
+                    stairs_by_key.setdefault(skey, []).append((fm, st))
+
+        # Connect adjacent floors belonging to the same staircase via walkable stairs edges.
+        for (bid, st_id), st_entries in stairs_by_key.items():
+            if len(st_entries) < 2:
                 continue
-            fms_sorted = sorted(fms, key=lambda m: (_floor_number(m.floor), m.indoor_id))
-            for i in range(len(fms_sorted)):
-                fm_a = fms_sorted[i]
-                ba = elev_by_iid[fm_a.indoor_id]
+            st_sorted = sorted(st_entries, key=lambda pair: (_floor_number(pair[0].floor), pair[0].indoor_id))
+            for i in range(len(st_sorted) - 1):
+                fm_a, sa = st_sorted[i]
+                fm_b, sb = st_sorted[i + 1]
+                if fm_a.indoor_id == fm_b.indoor_id:
+                    continue
+                na = f"in:{fm_a.indoor_id}:{sa['node_id']}"
+                nb = f"in:{fm_b.indoor_id}:{sb['node_id']}"
+                stitched.edges.append({
+                    "id": f"stairs:{bid}:{st_id}:{fm_a.indoor_id}:{fm_b.indoor_id}",
+                    "from": na,
+                    "to": nb,
+                    "name": f"{fm_a.building_name}{sa.get('name') or '楼梯'} {fm_a.floor}<->{fm_b.floor}",
+                    "road_class": "corridor",
+                    "width_m": 1.6,
+                    "weight": 1.2,
+                    "fixed_cost": 4.0,
+                    "bidirectional": True,
+                })
+
+        # Connect all floors belonging to the same elevator shaft via virtual vertical edges.
+        for (bid, shaft_id), entries in shafts_by_key.items():
+            if len(entries) < 2:
+                continue
+            entries_sorted = sorted(entries, key=lambda pair: (_floor_number(pair[0].floor), pair[0].indoor_id))
+            for i in range(len(entries_sorted)):
+                fm_a, ba = entries_sorted[i]
                 na = f"in:{fm_a.indoor_id}:{ba['cabin_node_id']}"
-                for j in range(i + 1, len(fms_sorted)):
-                    fm_b = fms_sorted[j]
-                    bb = elev_by_iid[fm_b.indoor_id]
+                for j in range(i + 1, len(entries_sorted)):
+                    fm_b, bb = entries_sorted[j]
+                    if fm_a.indoor_id == fm_b.indoor_id:
+                        continue
                     nb = f"in:{fm_b.indoor_id}:{bb['cabin_node_id']}"
                     span = max(1, abs(_floor_number(fm_b.floor) - _floor_number(fm_a.floor)))
                     stitched.edges.append({
-                        "id": f"elev:{bid}:{fm_a.indoor_id}:{fm_b.indoor_id}",
+                        "id": f"elev:{bid}:{shaft_id}:{fm_a.indoor_id}:{fm_b.indoor_id}",
                         "from": na,
                         "to": nb,
-                        "name": f"{fm_a.building_name}电梯 {fm_a.floor}<->{fm_b.floor}",
+                        "name": f"{fm_a.building_name}{ba.get('name') or '电梯'} {fm_a.floor}<->{fm_b.floor}",
                         "road_class": "elevator",
                         "width_m": 2.0,
                         "weight": 1.0,
@@ -522,8 +637,9 @@ class GlobalPlanner:
             dst_iid = _parse_iid(dst_nid)
             src_fm = by_id[src_iid]
             dst_fm = by_id[dst_iid]
-            src_bind = elev_by_iid[src_iid]
-            dst_bind = elev_by_iid[dst_iid]
+            src_bind = elev_by_cabin[src_nid]
+            dst_bind = elev_by_cabin[dst_nid]
+            eff_elev_id = str(src_bind.get("elevator_id") or dst_bind.get("elevator_id") or "")
 
             # Build walk leg up to the source floor elevator waiting door (NOT inside cabin).
             walk_nids = list(raw.node_ids[seg_start_idx : e_idx + 1])
@@ -559,25 +675,34 @@ class GlobalPlanner:
                 )
             )
 
-            # Elevator ride leg: src_floor -> dst_floor
+            # Elevator ride leg: src_floor -> dst_floor (carrying offline-bound geometry!)
             legs.append(
                 RouteLeg(
                     kind="elevator",
                     description=f"乘电梯：{src_fm.building_name} {src_fm.floor} → {dst_fm.floor}",
+                    elevator_id=eff_elev_id,
                     building_id=src_fm.building_id,
                     building_name=src_fm.building_name,
                     from_indoor_id=src_iid,
                     from_floor=src_fm.floor,
+                    from_floor_label=str(src_bind.get("floor_label") or src_fm.floor),
                     from_door_xy=src_bind["door_xy"],
                     from_cabin_xy=src_bind["cabin_xy"],
                     from_door_node_id=src_bind["door_node_id"],
                     from_cabin_node_id=src_bind["cabin_node_id"],
+                    from_cabin_bounds_enu=src_bind.get("cabin_bounds_enu"),
+                    from_door_bounds_enu=src_bind.get("door_bounds_enu"),
+                    from_elevation_y=src_bind.get("elevation_y"),
                     to_indoor_id=dst_iid,
                     to_floor=dst_fm.floor,
+                    to_floor_label=str(dst_bind.get("floor_label") or dst_fm.floor),
                     to_door_xy=dst_bind["door_xy"],
                     to_cabin_xy=dst_bind["cabin_xy"],
                     to_door_node_id=dst_bind["door_node_id"],
                     to_cabin_node_id=dst_bind["cabin_node_id"],
+                    to_cabin_bounds_enu=dst_bind.get("cabin_bounds_enu"),
+                    to_door_bounds_enu=dst_bind.get("door_bounds_enu"),
+                    to_elevation_y=dst_bind.get("elevation_y"),
                 )
             )
 

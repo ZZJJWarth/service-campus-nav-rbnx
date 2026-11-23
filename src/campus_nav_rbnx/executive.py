@@ -21,6 +21,13 @@ from typing import Any, Callable
 import numpy as np
 
 from campus_nav_rbnx.campus_map import CampusMap
+from campus_nav_rbnx.door_controller import (
+    DoorInteractor,
+    doorway_clear_width_m,
+    ensure_door_open_and_verified,
+    is_doorway_blocked,
+    query_visual_doors,
+)
 from campus_nav_rbnx.global_planner import GlobalPlanner, GlobalRoute, RouteLeg
 from campus_nav_rbnx.params import CampusNavConfig
 from campus_nav_rbnx.rtk_fusion import RtkOdomFusion
@@ -417,12 +424,13 @@ def polyline_lookahead(
     seg_classes: list[str] | None = None,
     indoor_lookahead_m: float = 5.0,
     corner_clamp_deg: float = 35.0,
+    outdoor_corner_clamp: bool = True,
 ) -> tuple[tuple[float, float], float, bool, int, float]:
     """Return (target_xy, target_yaw, is_final, seg_index, remaining_m).
 
     On indoor corridor/room_entry segments, narrows lookahead to indoor_lookahead_m
-    and clamps subgoals at doorway nodes (entrance / room_door) and sharp corridor
-    corners (>= corner_clamp_deg) so the robot never tries to cut through walls.
+    and clamps subgoals at doorway nodes (entrance / room_door) and sharp corners
+    (>= corner_clamp_deg) so the robot never tries to cut through walls or street corners.
     """
     if len(points) < 2:
         pt = points[0] if points else robot_xy
@@ -475,10 +483,14 @@ def polyline_lookahead(
         is_door = vkind in CLAMP_DOOR_KINDS
         seg_before_in = (v_idx - 1) < len(sclasses) and sclasses[v_idx - 1] in INDOOR_SEG_CLASSES
         seg_after_in = v_idx < len(sclasses) and sclasses[v_idx] in INDOOR_SEG_CLASSES
-        is_indoor_corner = (seg_before_in or seg_after_in) and (
-            _vertex_turn_deg(points[v_idx - 1], points[v_idx], points[v_idx + 1]) >= corner_clamp_deg
+        turn_deg = _vertex_turn_deg(points[v_idx - 1], points[v_idx], points[v_idx + 1])
+        is_indoor_corner = (seg_before_in or seg_after_in) and turn_deg >= corner_clamp_deg
+        is_outdoor_corner = (
+            outdoor_corner_clamp
+            and not (seg_before_in or seg_after_in)
+            and turn_deg >= corner_clamp_deg
         )
-        if is_door or is_indoor_corner:
+        if is_door or is_indoor_corner or is_outdoor_corner:
             nx, ny = points[v_idx + 1]
             yaw = math.atan2(ny - vy, nx - vx)
             return (vx, vy), yaw, False, best_seg, remaining
@@ -514,6 +526,8 @@ class HierarchicalNavExecutive:
         indoor_store_provider: Callable[[], Any] | None = None,
         rpc_fn: Callable[[str, dict[str, Any], float], dict[str, Any]] | None = None,
         elevator_client: Any = None,
+        door_interactor: DoorInteractor | None = None,
+        visual_object_url: str = "",
         reset_local_map_fn: Callable[[], bool] | None = None,
         on_floor_changed: Callable[[str, str, str], None] | None = None,
         tick_s: float = 0.25,
@@ -526,6 +540,8 @@ class HierarchicalNavExecutive:
         self._cost_grid_provider = cost_grid_provider
         self._rpc = rpc_fn or default_navigation_rpc
         self._elevator = elevator_client
+        self._door_interactor = door_interactor
+        self._visual_object_url = str(visual_object_url or "").strip()
         self._reset_local_map = reset_local_map_fn
         self._on_floor_changed = on_floor_changed
         self._tick_s = float(tick_s)
@@ -538,6 +554,41 @@ class HierarchicalNavExecutive:
         self._allowed_leg_indoor_ids: set[str] = set()
         self._worker: threading.Thread | None = None
         self._run: dict[str, Any] = self._idle_state()
+        self._lookahead_m: float = float(cfg.lookahead_m)
+        self._advance_radius_m: float = float(cfg.advance_radius_m)
+        self._outdoor_corner_clamp: bool = True
+
+    def get_nav_tuning(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "lookahead_m": round(self._lookahead_m, 2),
+                "advance_radius_m": round(self._advance_radius_m, 2),
+                "outdoor_corner_clamp": bool(self._outdoor_corner_clamp),
+            }
+
+    def set_nav_tuning(
+        self,
+        *,
+        lookahead_m: float | None = None,
+        advance_radius_m: float | None = None,
+        outdoor_corner_clamp: bool | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            if lookahead_m is not None:
+                val = float(lookahead_m)
+                if math.isfinite(val):
+                    self._lookahead_m = max(3.0, min(25.0, val))
+            if advance_radius_m is not None:
+                val = float(advance_radius_m)
+                if math.isfinite(val):
+                    self._advance_radius_m = max(1.0, min(12.0, val))
+            # Keep advance_radius strictly below lookahead so subgoals advance smoothly.
+            max_adv = max(1.0, round(self._lookahead_m * 0.72, 2))
+            if self._advance_radius_m > max_adv:
+                self._advance_radius_m = max_adv
+            if outdoor_corner_clamp is not None:
+                self._outdoor_corner_clamp = bool(outdoor_corner_clamp)
+            return self.get_nav_tuning()
 
     @staticmethod
     def _idle_state() -> dict[str, Any]:
@@ -675,14 +726,28 @@ class HierarchicalNavExecutive:
                         "ok": False,
                         "accepted": False,
                         "run_id": "",
-                        "detail": f"路线需要乘坐电梯 ({leg.from_floor}→{leg.to_floor})，但未配置 elevator_config_file",
+                        "detail": f"路线需要乘坐电梯 ({leg.from_floor}→{leg.to_floor})，但未配置电梯控制器",
                     }
-                if not self._elevator.supports_floor(leg.from_floor) or not self._elevator.supports_floor(leg.to_floor):
+                elev_ctrl = (
+                    self._elevator.resolve_for_leg(leg)
+                    if hasattr(self._elevator, "resolve_for_leg")
+                    else self._elevator
+                )
+                if elev_ctrl is None:
                     return {
                         "ok": False,
                         "accepted": False,
                         "run_id": "",
-                        "detail": f"电梯配置不支持楼层 {leg.from_floor} → {leg.to_floor}",
+                        "detail": f"路线需要乘坐电梯 ({leg.from_floor}→{leg.to_floor})，但该电梯未绑定控制器",
+                    }
+                from_tok = str(getattr(leg, "from_floor_label", "") or leg.from_floor)
+                to_tok = str(getattr(leg, "to_floor_label", "") or leg.to_floor)
+                if not elev_ctrl.supports_floor(from_tok) or not elev_ctrl.supports_floor(to_tok):
+                    return {
+                        "ok": False,
+                        "accepted": False,
+                        "run_id": "",
+                        "detail": f"电梯配置不支持楼层 {from_tok} → {to_tok}",
                     }
 
         self.cancel()
@@ -838,7 +903,8 @@ class HierarchicalNavExecutive:
         grid = self._cost_grid_provider()
         if grid is not None and nudge_radius_m > 0.0:
             ox, oy = grid.nudge_to_passable(ox, oy, search_radius_m=nudge_radius_m)
-        half = yaw / 2.0
+        odom_yaw = _wrap_angle(float(yaw) - float(self._fusion.yaw_offset))
+        half = odom_yaw / 2.0
         resp = self._rpc(
             "navigate",
             {
@@ -1023,6 +1089,8 @@ class HierarchicalNavExecutive:
         last_progress_time = time.monotonic()
         consecutive_failures = 0
         max_reroutes = 4
+        handled_door_vertices: set[int] = set()
+        last_visual_door_open_t = 0.0
 
         with self._lock:
             self._run["route_points"] = [[round(p[0], 3), round(p[1], 3)] for p in active_route.points]
@@ -1048,24 +1116,68 @@ class HierarchicalNavExecutive:
             if pose is None:
                 self._stop_event.wait(self._tick_s)
                 continue
-            rx, ry, _ = pose
+            rx, ry, ryaw = pose
             dist_to_final = math.hypot(gx - rx, gy - ry)
+
+            # Automatic floor sync while walking up/down multi-floor stairs (pure odom_z check).
+            self._maybe_sync_stairs_floor(rx, ry)
+
+            with self._lock:
+                cur_lookahead = self._lookahead_m
+                cur_advance_r = self._advance_radius_m
+                cur_outdoor_clamp = self._outdoor_corner_clamp
 
             target_xy, target_yaw, is_final, seg_idx, remaining = polyline_lookahead(
                 active_route.points,
                 (rx, ry),
-                self.cfg.lookahead_m,
+                cur_lookahead,
                 point_kinds=active_route.point_kinds,
                 seg_classes=active_route.seg_classes,
                 indoor_lookahead_m=self.cfg.indoor_lookahead_m,
                 corner_clamp_deg=self.cfg.corner_clamp_deg,
+                outdoor_corner_clamp=cur_outdoor_clamp,
             )
+
+            # Proactive doorway handler: when approaching a mapped entrance/room_door whose
+            # local costmap threshold is closed or narrow (1-block door), open via pure-physical
+            # interact_point, verify open on LiDAR/costmap, and perform centered straight-through pass!
+            if self._door_interactor is not None:
+                door_v = self._find_upcoming_door_vertex(
+                    active_route, seg_idx, (rx, ry), handled_door_vertices
+                )
+                if door_v is not None:
+                    d_xy = active_route.points[door_v]
+                    beyond_xy = (
+                        active_route.points[door_v + 1]
+                        if door_v + 1 < len(active_route.points)
+                        else (gx, gy)
+                    )
+                    d_heading = math.atan2(beyond_xy[1] - d_xy[1], beyond_xy[0] - d_xy[0])
+                    grid_now = self._cost_grid_provider()
+                    d_ox, d_oy = self._fusion.campus_to_odom(d_xy[0], d_xy[1])
+                    blocked_now = is_doorway_blocked(grid_now, d_ox, d_oy, d_heading)
+                    clear_w = doorway_clear_width_m(grid_now, d_ox, d_oy, d_heading)
+                    is_narrow = clear_w is not None and clear_w <= 1.55
+                    if blocked_now or is_narrow:
+                        handled_door_vertices.add(door_v)
+                        if local_run_id:
+                            self._rpc("cancel", {"run_id": local_run_id}, 5.0)
+                            local_run_id = ""
+                            with self._lock:
+                                self._run["local_run_id"] = ""
+                        ok_door = self._handle_doorway_crossing(
+                            d_xy, d_heading, deadline, leg_prefix=leg_prefix
+                        )
+                        if ok_door:
+                            consecutive_failures = 0
+                            last_progress_time = time.monotonic()
+                            continue
             seg_indoor = (
                 seg_idx < len(active_route.seg_classes)
                 and active_route.seg_classes[seg_idx] in INDOOR_SEG_CLASSES
             )
             eff_advance_r = (
-                self.cfg.indoor_advance_radius_m if seg_indoor else self.cfg.advance_radius_m
+                self.cfg.indoor_advance_radius_m if seg_indoor else cur_advance_r
             )
             final_indoor = bool(
                 active_route.point_kinds
@@ -1123,6 +1235,21 @@ class HierarchicalNavExecutive:
                         local_run_id = ""
                         subgoal_failed = True
                         fail_reason = "local subgoal stalled"
+
+            if subgoal_failed:
+                # Reactive closed-door recovery: if stalled in front of an unmarked closed door
+                # detected by RGB-D visual_object (8094), try opening it before rerouting!
+                if (
+                    self._door_interactor is not None
+                    and self._visual_object_url
+                    and (now - last_visual_door_open_t) >= 4.0
+                ):
+                    opened_vis = self._try_open_nearby_visual_door(rx, ry, ryaw, deadline, leg_prefix=leg_prefix)
+                    if opened_vis:
+                        last_visual_door_open_t = time.monotonic()
+                        consecutive_failures = 0
+                        need_new_subgoal = True
+                        subgoal_failed = False
 
             if subgoal_failed:
                 consecutive_failures += 1
@@ -1205,6 +1332,182 @@ class HierarchicalNavExecutive:
         if local_run_id:
             self._rpc("cancel", {"run_id": local_run_id}, 5.0)
         return False, "canceled"
+
+    def _maybe_sync_stairs_floor(self, rx: float, ry: float) -> None:
+        """Automatically update active floor label when walking up/down multi-floor stairs."""
+        oz = self._fusion.odom_z
+        if oz is None or self._indoor_store_provider is None:
+            return
+        cur_iid = self._fusion.current_indoor_id
+        if not cur_iid:
+            return
+        store = self._indoor_store_provider()
+        if store is None:
+            return
+        cur_fm = store.get(cur_iid)
+        if cur_fm is None or cur_fm.elevation_y is None:
+            return
+        if abs(float(oz) - float(cur_fm.elevation_y)) <= 1.8:
+            return
+        best_fm = None
+        best_dz = 1.6
+        for fm in store.all_maps():
+            if fm.building_id != cur_fm.building_id or fm.indoor_id == cur_iid or fm.elevation_y is None:
+                continue
+            dz = abs(float(oz) - float(fm.elevation_y))
+            if dz < best_dz:
+                best_dz = dz
+                best_fm = fm
+        if best_fm is not None:
+            log.info(
+                "stairs elevation sync: %s -> %s (odom_z=%.2f, target_y=%.2f)",
+                cur_fm.floor, best_fm.floor, float(oz), float(best_fm.elevation_y),
+            )
+            if self._on_floor_changed is not None:
+                self._on_floor_changed(best_fm.indoor_id, best_fm.building_name, best_fm.floor)
+            else:
+                self._fusion.set_indoor_floor(best_fm.indoor_id, best_fm.building_name, best_fm.floor)
+
+    @staticmethod
+    def _find_upcoming_door_vertex(
+        route: GlobalRoute,
+        seg_idx: int,
+        robot_xy: tuple[float, float],
+        handled: set[int],
+        *,
+        trigger_dist_m: float = 2.35,
+    ) -> int | None:
+        pkinds = route.point_kinds or []
+        for idx in range(max(1, seg_idx + 1), min(len(route.points), seg_idx + 4)):
+            if idx in handled or idx >= len(pkinds):
+                continue
+            if pkinds[idx] not in CLAMP_DOOR_KINDS:
+                continue
+            vx, vy = route.points[idx]
+            if math.hypot(vx - robot_xy[0], vy - robot_xy[1]) <= trigger_dist_m:
+                return idx
+        return None
+
+    def _handle_doorway_crossing(
+        self,
+        door_xy: tuple[float, float],
+        heading_yaw: float,
+        deadline: float,
+        *,
+        leg_prefix: str = "",
+    ) -> bool:
+        """Open a closed door (verified via LiDAR/costmap) and perform centered pass through narrow 1-block doors."""
+        if self._door_interactor is None:
+            return False
+        d_ox, d_oy = self._fusion.campus_to_odom(door_xy[0], door_xy[1])
+        rz = float(self._fusion.odom_z) if self._fusion.odom_z is not None else 0.0
+        with self._lock:
+            self._run["detail"] = f"{leg_prefix}检测到门口通道，正在检查并自动开门..."
+
+        odom_heading = _wrap_angle(float(heading_yaw) - float(self._fusion.yaw_offset))
+        ok_open, reason = ensure_door_open_and_verified(
+            self._door_interactor,
+            self._cost_grid_provider,
+            d_ox,
+            d_oy,
+            rz,
+            odom_heading,
+            robot_odom_pose=self._fusion.odom_pose,
+            reset_local_map_fn=self._reset_local_map,
+            cancel_event=self._stop_event,
+            settle_s=min(0.45, max(0.05, self.cfg.elevator_settle_s)),
+        )
+        if not ok_open:
+            log.warning("doorway at %s stayed blocked (%s)", door_xy, reason)
+            return False
+
+        # For narrow 1-block doorways (width <= 1.55 m), align on-axis and pass cleanly through!
+        grid_now = self._cost_grid_provider()
+        clear_w = doorway_clear_width_m(grid_now, d_ox, d_oy, heading_yaw)
+        if clear_w is not None and clear_w <= 1.55:
+            ux, uy = math.cos(heading_yaw), math.sin(heading_yaw)
+            approach_xy = (door_xy[0] - ux * 1.05, door_xy[1] - uy * 1.05)
+            through_xy = (door_xy[0] + ux * 1.10, door_xy[1] + uy * 1.10)
+            pose = self._fusion.campus_pose()
+            if pose is not None:
+                px, py = -uy, ux
+                lat_err = abs((pose[0] - door_xy[0]) * px + (pose[1] - door_xy[1]) * py)
+                if lat_err > 0.35:
+                    with self._lock:
+                        self._run["detail"] = f"{leg_prefix}正在对准窄门中轴..."
+                    ok_align, align_msg = self._navigate_to_exact_point(
+                        approach_xy,
+                        heading_yaw,
+                        deadline,
+                        tol_m=0.45,
+                        align_first=True,
+                        nudge_radius_m=0.0,
+                        step_timeout_s=12.0,
+                        settle_s=0.1,
+                    )
+                    if not ok_align:
+                        log.warning("narrow doorway alignment failed at %s: %s", door_xy, align_msg)
+                        return False
+            with self._lock:
+                self._run["detail"] = f"{leg_prefix}门已打开，正在居中穿过窄门..."
+            ok_pass, pass_msg = self._navigate_to_exact_point(
+                through_xy,
+                heading_yaw,
+                deadline,
+                tol_m=0.55,
+                align_first=True,
+                nudge_radius_m=0.0,
+                step_timeout_s=15.0,
+                settle_s=0.1,
+            )
+            if not ok_pass:
+                log.warning("narrow doorway pass-through failed at %s: %s", door_xy, pass_msg)
+                return False
+        return True
+
+    def _try_open_nearby_visual_door(
+        self,
+        rx: float,
+        ry: float,
+        ryaw: float,
+        deadline: float,
+        *,
+        leg_prefix: str = "",
+    ) -> bool:
+        """Query RGB-D visual_object service for an unmarked closed door within 3.5 m ahead and open it."""
+        if self._door_interactor is None or not self._visual_object_url:
+            return False
+        doors = query_visual_doors(self._visual_object_url)
+        if not doors:
+            return False
+        rob_ox, rob_oy = self._fusion.campus_to_odom(rx, ry)
+        best = None
+        best_d = 3.6
+        for obj in doors:
+            ox = float(obj.get("odom_x", 0.0))
+            oy = float(obj.get("odom_y", 0.0))
+            oz = float(obj.get("odom_z", 0.0))
+            d = math.hypot(ox - rob_ox, oy - rob_oy)
+            if 0.4 <= d < best_d:
+                best_d = d
+                best = (ox, oy, oz)
+        if best is None:
+            return False
+        heading = math.atan2(best[1] - rob_oy, best[0] - rob_ox)
+        with self._lock:
+            self._run["detail"] = f"{leg_prefix}视觉检测到前方关闭的门，正在尝试自动开门..."
+        ok, _ = ensure_door_open_and_verified(
+            self._door_interactor,
+            self._cost_grid_provider,
+            best[0],
+            best[1],
+            float(self._fusion.odom_z) if self._fusion.odom_z is not None else best[2] - 1.0,
+            heading,
+            reset_local_map_fn=self._reset_local_map,
+            cancel_event=self._stop_event,
+            settle_s=min(0.45, max(0.05, self.cfg.elevator_settle_s)),
+        )
+        return ok
 
     def _navigate_to_exact_point(
         self,
@@ -1367,9 +1670,22 @@ class HierarchicalNavExecutive:
         if leg.from_door_xy is None or leg.from_cabin_xy is None or leg.to_door_xy is None or leg.to_cabin_xy is None:
             return False, "elevator leg missing door/cabin coordinates"
 
+        elev = (
+            self._elevator.resolve_for_leg(leg)
+            if hasattr(self._elevator, "resolve_for_leg")
+            else self._elevator
+        )
+        if elev is None:
+            return (
+                False,
+                "该楼层电梯尚未绑定电梯控制器（请持室内建图仪右键电梯基座完成离线绑定）",
+            )
+        src_floor_cmd = leg.from_floor_label or leg.from_floor
+        dst_floor_cmd = leg.to_floor_label or leg.to_floor
+
         def _rem_timeout() -> float:
             if deadline <= 0:
-                return float(getattr(self._elevator, "wait_timeout_s", 90.0))
+                return float(getattr(elev, "wait_timeout_s", 90.0))
             return max(5.0, deadline - time.monotonic())
 
         try:
@@ -1381,7 +1697,7 @@ class HierarchicalNavExecutive:
                 f"{leg_prefix}正在呼叫电梯到 {leg.from_floor} 并开门...",
                 indoor_id=leg.from_indoor_id,
             )
-            self._elevator.call_and_open(leg.from_floor, cancel_event=self._stop_event, timeout_s=_rem_timeout())
+            elev.call_and_open(src_floor_cmd, cancel_event=self._stop_event, timeout_s=_rem_timeout())
             if self._stop_event.is_set():
                 return False, "canceled"
             if self._replan_event.is_set():
@@ -1404,8 +1720,8 @@ class HierarchicalNavExecutive:
                 indoor_id=leg.from_indoor_id,
             )
             cabin_target_xy = (
-                self._elevator.safe_cabin_interior_xy(leg.from_floor)
-                if hasattr(self._elevator, "safe_cabin_interior_xy")
+                elev.safe_cabin_interior_xy(src_floor_cmd)
+                if hasattr(elev, "safe_cabin_interior_xy")
                 else None
             ) or leg.from_cabin_xy
             yaw_in = math.atan2(
@@ -1413,8 +1729,8 @@ class HierarchicalNavExecutive:
                 cabin_target_xy[0] - leg.from_door_xy[0],
             )
             inside_check = (
-                (lambda px, py: self._elevator.is_xy_safely_inside_cabin(leg.from_floor, px, py, margin_m=0.45))
-                if hasattr(self._elevator, "is_xy_safely_inside_cabin")
+                (lambda px, py: elev.is_xy_safely_inside_cabin(src_floor_cmd, px, py, margin_m=0.45))
+                if hasattr(elev, "is_xy_safely_inside_cabin")
                 else None
             )
             ok_in, err_in = self._navigate_to_exact_point(
@@ -1436,7 +1752,7 @@ class HierarchicalNavExecutive:
                 f"{leg_prefix}已完全进入轿厢，正在关闭 {leg.from_floor} 电梯门...",
                 indoor_id=leg.from_indoor_id,
             )
-            self._elevator.close_door(leg.from_floor, cancel_event=self._stop_event, timeout_s=_rem_timeout())
+            elev.close_door(src_floor_cmd, cancel_event=self._stop_event, timeout_s=_rem_timeout())
             if self._stop_event.is_set():
                 return False, "canceled"
 
@@ -1446,21 +1762,43 @@ class HierarchicalNavExecutive:
                 f"{leg_prefix}乘梯运行中：{leg.from_floor} → {leg.to_floor}...",
                 indoor_id=leg.from_indoor_id,
             )
-            self._elevator.move_cabin(leg.to_floor, cancel_event=self._stop_event, timeout_s=_rem_timeout())
+            start_odom_z = self._fusion.odom_z
+            elev.move_cabin(dst_floor_cmd, cancel_event=self._stop_event, timeout_s=_rem_timeout())
             if self._stop_event.is_set():
                 return False, "canceled"
 
-            # Pure-sensor sanity check: verify onboard chassis odom Z actually reached target floor elevation!
-            target_elev_y = (
-                self._elevator.floor_elevation_y(leg.to_floor)
-                if hasattr(self._elevator, "floor_elevation_y")
-                else None
+            # Pure-sensor sanity check: verify onboard chassis odom Δz matches floor elevation change
+            # (works identically for both absolute and spawn-relative odom_z!).
+            from_elev_y = (
+                leg.from_elevation_y
+                if leg.from_elevation_y is not None
+                else (
+                    elev.floor_elevation_y(src_floor_cmd)
+                    if hasattr(elev, "floor_elevation_y")
+                    else None
+                )
             )
-            if target_elev_y is not None and self._fusion.odom_z is not None:
-                if abs(self._fusion.odom_z - target_elev_y) > 2.2:
+            target_elev_y = (
+                leg.to_elevation_y
+                if leg.to_elevation_y is not None
+                else (
+                    elev.floor_elevation_y(dst_floor_cmd)
+                    if hasattr(elev, "floor_elevation_y")
+                    else None
+                )
+            )
+            if (
+                from_elev_y is not None
+                and target_elev_y is not None
+                and start_odom_z is not None
+                and self._fusion.odom_z is not None
+            ):
+                expected_dz = float(target_elev_y) - float(from_elev_y)
+                actual_dz = float(self._fusion.odom_z) - float(start_odom_z)
+                if abs(actual_dz - expected_dz) > 2.2:
                     return (
                         False,
-                        f"机器人未随轿厢抵达 {leg.to_floor} (odom_z={self._fusion.odom_z:.2f}, 期望={target_elev_y:.2f})",
+                        f"机器人未随轿厢抵达 {leg.to_floor} (实际高差={actual_dz:+.2f}m, 期望={expected_dz:+.2f}m)",
                     )
 
             # 6. Floor switch: wipe old floor's rolling local map and update active floor state!
@@ -1485,7 +1823,7 @@ class HierarchicalNavExecutive:
                 f"{leg_prefix}正在打开 {leg.to_floor} 电梯门...",
                 indoor_id=leg.to_indoor_id,
             )
-            self._elevator.call_and_open(leg.to_floor, cancel_event=self._stop_event, timeout_s=_rem_timeout())
+            elev.call_and_open(dst_floor_cmd, cancel_event=self._stop_event, timeout_s=_rem_timeout())
             if self._stop_event.is_set():
                 return False, "canceled"
 
@@ -1511,10 +1849,10 @@ class HierarchicalNavExecutive:
             )
             outside_check = (
                 (
-                    lambda px, py: self._elevator.is_xy_safely_outside_cabin(leg.to_floor, px, py, margin_m=0.45)
+                    lambda px, py: elev.is_xy_safely_outside_cabin(dst_floor_cmd, px, py, margin_m=0.45)
                     and math.hypot(px - leg.to_door_xy[0], py - leg.to_door_xy[1]) <= 3.5
                 )
-                if hasattr(self._elevator, "is_xy_safely_outside_cabin")
+                if hasattr(elev, "is_xy_safely_outside_cabin")
                 else None
             )
             ok_out, err_out = self._navigate_to_exact_point(
@@ -1536,7 +1874,7 @@ class HierarchicalNavExecutive:
                 f"{leg_prefix}已离开轿厢，正在关闭 {leg.to_floor} 电梯门...",
                 indoor_id=leg.to_indoor_id,
             )
-            self._elevator.close_door(leg.to_floor, cancel_event=self._stop_event, timeout_s=_rem_timeout())
+            elev.close_door(dst_floor_cmd, cancel_event=self._stop_event, timeout_s=_rem_timeout())
             return True, ""
         except Exception as exc:  # noqa: BLE001
             if self._stop_event.is_set():

@@ -18,7 +18,8 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from campus_nav_rbnx import params
 from campus_nav_rbnx.campus_map import CampusMap, SurveyRecorder
-from campus_nav_rbnx.elevator_client import ElevatorClient
+from campus_nav_rbnx.door_controller import DoorInteractor
+from campus_nav_rbnx.elevator_client import ElevatorClient, MultiElevatorManager
 from campus_nav_rbnx.executive import HierarchicalNavExecutive, LocalCostGridSnapshot
 from campus_nav_rbnx.fiducial_localizer import VisualFiducialLocalizer, VisualRelocalizerFilter
 from campus_nav_rbnx.global_planner import GlobalPlanner
@@ -80,25 +81,31 @@ class CampusNavRuntime:
         }
         self.planner = GlobalPlanner(blocked_edge_ttl_s=cfg.blocked_edge_ttl_s)
         self.mapper_client = ServerMapperClient(cfg.server_host, cfg.server_port)
-        self.elevator_client: ElevatorClient | None = None
+        legacy_elevator: ElevatorClient | None = None
         if cfg.elevator_config_file:
             ep = Path(cfg.elevator_config_file)
             if ep.is_file():
                 try:
-                    self.elevator_client = ElevatorClient.from_config_file(
+                    legacy_elevator = ElevatorClient.from_config_file(
                         ep,
                         host=cfg.server_host,
                         port=cfg.server_port if cfg.server_port > 0 else None,
                     )
                     log.info(
-                        "loaded elevator controller config %s (%d floors)",
+                        "loaded legacy elevator controller config %s (%d floors)",
                         ep,
-                        len(self.elevator_client.floors),
+                        len(legacy_elevator.floors),
                     )
                 except Exception as exc:  # noqa: BLE001
                     log.warning("failed to load elevator config %s: %s", ep, exc)
             else:
                 log.warning("elevator_config_file does not exist: %s", ep)
+        self.elevator_client = MultiElevatorManager(
+            host=cfg.server_host,
+            port=cfg.server_port,
+            dimension=cfg.dimension,
+            legacy=legacy_elevator,
+        )
         self._cost_grid: LocalCostGridSnapshot | None = None
         self._stations: list[dict[str, Any]] = []
         self._survey_holders: list[dict[str, Any]] = []
@@ -111,6 +118,10 @@ class CampusNavRuntime:
         self._executor: Any = None
         self._ros_thread: threading.Thread | None = None
         self._webui: CampusWebUI | None = None
+        self.door_interactor = DoorInteractor(
+            host=os.environ.get("RBNX_MINECRAFT_MOD_HOST", "127.0.0.1"),
+            port=int(os.environ.get("RBNX_MINECRAFT_MOD_PORT", "25576")),
+        )
         self.executive = HierarchicalNavExecutive(
             cfg=cfg,
             map_provider=self.get_map,
@@ -119,6 +130,8 @@ class CampusNavRuntime:
             cost_grid_provider=self.get_cost_grid,
             indoor_store_provider=lambda: self.indoor_store,
             elevator_client=self.elevator_client,
+            door_interactor=self.door_interactor,
+            visual_object_url=os.environ.get("ROBONIX_VISUAL_OBJECT_URL", "http://127.0.0.1:8094"),
             reset_local_map_fn=self.reset_local_map,
             on_floor_changed=self._on_floor_changed,
         )
@@ -495,22 +508,27 @@ class CampusNavRuntime:
                                     self.campus_map.save(self.cfg.map_dir / self.active_file)
                         if indoor_holders:
                             ipose = indoor_holders[0].get("pose") or {}
-                            fm = self._resolve_active_floor_map(
-                                float(ipose.get("east", 0.0)),
-                                float(ipose.get("north", 0.0)),
-                                ipose.get("up"),
+                            has_new_mark = bool(
+                                last_indoor_mark
+                                and int(last_indoor_mark.get("seq", 0)) > self.indoor_recorder._last_mark_seq
                             )
-                            iout = self.indoor_recorder.ingest_sample(
-                                self.campus_map,
-                                fm,
-                                float(ipose.get("east", 0.0)),
-                                float(ipose.get("north", 0.0)),
-                                anchored=bool(ipose.get("anchored", False)),
-                                elevation_y=ipose.get("up"),
-                                mark_event=last_indoor_mark,
-                            )
-                            if iout.get("changed") or iout.get("auto_saved"):
-                                self.indoor_store.save(fm)
+                            if self.active_indoor_id or self.indoor_recorder.active or has_new_mark:
+                                fm = self._resolve_active_floor_map(
+                                    float(ipose.get("east", 0.0)),
+                                    float(ipose.get("north", 0.0)),
+                                    ipose.get("up"),
+                                )
+                                iout = self.indoor_recorder.ingest_sample(
+                                    self.campus_map,
+                                    fm,
+                                    float(ipose.get("east", 0.0)),
+                                    float(ipose.get("north", 0.0)),
+                                    anchored=bool(ipose.get("anchored", False)),
+                                    elevation_y=ipose.get("up"),
+                                    mark_event=last_indoor_mark,
+                                )
+                                if iout.get("changed") or iout.get("auto_saved"):
+                                    self.indoor_store.save(fm)
                     last_station_poll = now
                 except Exception as exc:  # noqa: BLE001
                     with self.lock:
@@ -542,6 +560,7 @@ class CampusNavRuntime:
             "POST:api/survey/start": self._api_survey_start,
             "POST:api/survey/stop": self._api_survey_stop,
             "POST:api/survey/finish_area": self._api_survey_finish_area,
+            "POST:api/survey/undo_draft_point": self._api_survey_undo_draft_point,
             "POST:api/survey/drop_poi": self._api_survey_drop_poi,
             "POST:api/indoor/select_floor": self._api_indoor_select_floor,
             "POST:api/indoor/replace": self._api_indoor_replace,
@@ -549,10 +568,14 @@ class CampusNavRuntime:
             "POST:api/indoor/anchor_entrance": self._api_indoor_anchor_entrance,
             "POST:api/indoor/mark_room_door": self._api_indoor_mark_room_door,
             "POST:api/indoor/mark_room_nav": self._api_indoor_mark_room_nav,
+            "POST:api/indoor/mark_elevator_door": self._api_indoor_mark_elevator_door,
+            "POST:api/indoor/mark_elevator_cabin": self._api_indoor_mark_elevator_cabin,
+            "POST:api/indoor/mark_stairs": self._api_indoor_mark_stairs,
             "POST:api/indoor/corridor_toggle": self._api_indoor_corridor_toggle,
             "POST:api/navigate": self._api_navigate,
             "POST:api/navigate/cancel": self._api_navigate_cancel,
             "POST:api/navigate/clear_blocked": self._api_clear_blocked,
+            "POST:api/navigate/tuning": self._api_nav_tuning,
             "POST:api/relocalize": self._api_relocalize,
             "POST:api/localization/invalidate": self._api_localization_invalidate,
         }
@@ -581,6 +604,8 @@ class CampusNavRuntime:
                 "active_indoor_map": active_fm.to_dict() if active_fm is not None else None,
                 "indoor_maps": self.indoor_store.list_summaries(),
                 "all_rooms": self.indoor_store.all_rooms(),
+                "all_elevators": self.indoor_store.all_elevators(),
+                "all_stairs": self.indoor_store.all_stairs(),
                 "robot": self.fusion.snapshot(),
                 "local_window": local_box,
                 "stations": list(self._stations),
@@ -594,9 +619,10 @@ class CampusNavRuntime:
                     "indoor_recorder": self.indoor_recorder.state_dict(),
                 },
                 "navigation": self.executive.snapshot(),
+                "nav_tuning": self.executive.get_nav_tuning(),
                 "relocalize": dict(self._reloc_state),
                 "elevator": (
-                    self.elevator_client.status_snapshot()
+                    self.elevator_client.status_snapshot(self.indoor_store)
                     if self.elevator_client is not None
                     else {"enabled": False, "floors": []}
                 ),
@@ -702,6 +728,17 @@ class CampusNavRuntime:
                 return {"ok": False, "detail": "need at least 3 vertices to close area"}
             self.campus_map.save(self.cfg.map_dir / self.active_file)
             return {"ok": True, "area": area}
+
+    def _api_survey_undo_draft_point(self, _: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            removed = self.recorder.undo_area_vertex()
+            if removed is None:
+                return {"ok": False, "detail": "当前没有待撤销的建筑角点"}
+            return {
+                "ok": True,
+                "removed": removed,
+                "remaining": len(self.recorder._area_draft),
+            }
 
     def _api_survey_drop_poi(self, body: dict[str, Any]) -> dict[str, Any]:
         name = str(body.get("name") or "").strip()
@@ -875,6 +912,77 @@ class CampusNavRuntime:
             self.indoor_store.save(fm)
             return {"ok": True, "indoor_id": fm.indoor_id, **out, "indoor_recorder": self.indoor_recorder.state_dict()}
 
+    def _api_indoor_mark_elevator_door(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            self._mapping_ui_open = True
+            xy = self._current_indoor_xy(body)
+            if xy is None:
+                return {"ok": False, "detail": "未检测到手持 indoor_mapper（室内建图仪）的玩家"}
+            fm = self._resolve_active_floor_map(
+                xy[0], xy[1],
+                building_id=str(body.get("building_id") or ""),
+                floor=str(body.get("floor") or ""),
+            )
+            door = self.indoor_recorder.mark_elevator_door(
+                fm,
+                xy[0],
+                xy[1],
+                name=str(body.get("elevator_name") or body.get("name") or ""),
+                elevator_id=str(body.get("elevator_id") or ""),
+            )
+            self.indoor_store.save(fm)
+            return {"ok": True, "indoor_id": fm.indoor_id, "door": door, "indoor_recorder": self.indoor_recorder.state_dict()}
+
+    def _api_indoor_mark_elevator_cabin(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            self._mapping_ui_open = True
+            xy = self._current_indoor_xy(body)
+            if xy is None:
+                return {"ok": False, "detail": "未检测到手持 indoor_mapper（室内建图仪）的玩家"}
+            elev_y = body.get("up")
+            if elev_y is None and self._indoor_holders:
+                elev_y = (self._indoor_holders[0].get("pose") or {}).get("up")
+            fm = self._resolve_active_floor_map(
+                xy[0], xy[1], elev_y,
+                building_id=str(body.get("building_id") or ""),
+                floor=str(body.get("floor") or ""),
+            )
+            out = self.indoor_recorder.mark_elevator_cabin(
+                fm,
+                xy[0],
+                xy[1],
+                name=str(body.get("elevator_name") or body.get("name") or ""),
+                elevator_id=str(body.get("elevator_id") or ""),
+                floor_label=str(body.get("floor_label") or fm.floor),
+                elevation_y=float(elev_y) if elev_y is not None else None,
+            )
+            self.indoor_store.save(fm)
+            return {"ok": True, "indoor_id": fm.indoor_id, **out, "indoor_recorder": self.indoor_recorder.state_dict()}
+
+    def _api_indoor_mark_stairs(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            self._mapping_ui_open = True
+            xy = self._current_indoor_xy(body)
+            if xy is None:
+                return {"ok": False, "detail": "未检测到手持 indoor_mapper（室内建图仪）的玩家"}
+            elev_y = body.get("up")
+            if elev_y is None and self._indoor_holders:
+                elev_y = (self._indoor_holders[0].get("pose") or {}).get("up")
+            fm = self._resolve_active_floor_map(
+                xy[0], xy[1], elev_y,
+                building_id=str(body.get("building_id") or ""),
+                floor=str(body.get("floor") or ""),
+            )
+            st = fm.upsert_stairs(
+                xy[0],
+                xy[1],
+                stairs_id=str(body.get("stairs_id") or "stairs_main"),
+                name=str(body.get("name") or "楼梯"),
+                elevation_y=float(elev_y) if elev_y is not None else None,
+            )
+            self.indoor_store.save(fm)
+            return {"ok": True, "indoor_id": fm.indoor_id, "stairs": st, "indoor_recorder": self.indoor_recorder.state_dict()}
+
     def _api_indoor_corridor_toggle(self, body: dict[str, Any]) -> dict[str, Any]:
         action = str(body.get("action") or "").strip().lower()
         with self.lock:
@@ -917,6 +1025,28 @@ class CampusNavRuntime:
             start_indoor_id=start_indoor_id,
             timeout_s=timeout_s,
         )
+
+    def _api_nav_tuning(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            la = float(body["lookahead_m"]) if "lookahead_m" in body and body["lookahead_m"] is not None else None
+            adv = float(body["advance_radius_m"]) if "advance_radius_m" in body and body["advance_radius_m"] is not None else None
+            clamp = bool(body["outdoor_corner_clamp"]) if "outdoor_corner_clamp" in body and body["outdoor_corner_clamp"] is not None else None
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "detail": f"参数格式错误: {exc}"}
+        updated = self.executive.set_nav_tuning(
+            lookahead_m=la,
+            advance_radius_m=adv,
+            outdoor_corner_clamp=clamp,
+        )
+        return {
+            "ok": True,
+            "nav_tuning": updated,
+            "detail": (
+                f"已更新室外粒度：前瞻 {updated['lookahead_m']:.1f}m · "
+                f"切点 {updated['advance_radius_m']:.1f}m · "
+                f"街角卡点{'开' if updated['outdoor_corner_clamp'] else '关'}"
+            ),
+        }
 
     def _set_reloc_state(self, active: bool, phase: str, detail: str, hops_done: int = 0) -> None:
         with self.lock:

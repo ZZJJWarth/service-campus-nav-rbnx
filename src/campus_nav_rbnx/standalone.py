@@ -47,6 +47,11 @@ class StandaloneCampusMapper:
         self._indoor_holders: list[dict[str, Any]] = []
         self._survey_error: str = ""
         self._mapping_ui_open: bool = True
+        self._nav_tuning: dict[str, Any] = {
+            "lookahead_m": float(cfg.lookahead_m),
+            "advance_radius_m": float(cfg.advance_radius_m),
+            "outdoor_corner_clamp": True,
+        }
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._webui = CampusWebUI(
@@ -109,22 +114,27 @@ class StandaloneCampusMapper:
                                 self.campus_map.save(self.cfg.map_dir / self.active_file)
                     if indoor_holders:
                         ipose = indoor_holders[0].get("pose") or {}
-                        fm = self._resolve_active_floor_map(
-                            float(ipose.get("east", 0.0)),
-                            float(ipose.get("north", 0.0)),
-                            ipose.get("up"),
+                        has_new_mark = bool(
+                            last_indoor_mark
+                            and int(last_indoor_mark.get("seq", 0)) > self.indoor_recorder._last_mark_seq
                         )
-                        iout = self.indoor_recorder.ingest_sample(
-                            self.campus_map,
-                            fm,
-                            float(ipose.get("east", 0.0)),
-                            float(ipose.get("north", 0.0)),
-                            anchored=bool(ipose.get("anchored", False)),
-                            elevation_y=ipose.get("up"),
-                            mark_event=last_indoor_mark,
-                        )
-                        if iout.get("changed") or iout.get("auto_saved"):
-                            self.indoor_store.save(fm)
+                        if self.active_indoor_id or self.indoor_recorder.active or has_new_mark:
+                            fm = self._resolve_active_floor_map(
+                                float(ipose.get("east", 0.0)),
+                                float(ipose.get("north", 0.0)),
+                                ipose.get("up"),
+                            )
+                            iout = self.indoor_recorder.ingest_sample(
+                                self.campus_map,
+                                fm,
+                                float(ipose.get("east", 0.0)),
+                                float(ipose.get("north", 0.0)),
+                                anchored=bool(ipose.get("anchored", False)),
+                                elevation_y=ipose.get("up"),
+                                mark_event=last_indoor_mark,
+                            )
+                            if iout.get("changed") or iout.get("auto_saved"):
+                                self.indoor_store.save(fm)
             except Exception as exc:  # noqa: BLE001
                 with self.lock:
                     self._survey_error = str(exc)
@@ -142,6 +152,7 @@ class StandaloneCampusMapper:
             "POST:api/survey/start": self._api_survey_start,
             "POST:api/survey/stop": self._api_survey_stop,
             "POST:api/survey/finish_area": self._api_survey_finish_area,
+            "POST:api/survey/undo_draft_point": self._api_survey_undo_draft_point,
             "POST:api/survey/drop_poi": self._api_survey_drop_poi,
             "POST:api/indoor/select_floor": self._api_indoor_select_floor,
             "POST:api/indoor/replace": self._api_indoor_replace,
@@ -149,10 +160,14 @@ class StandaloneCampusMapper:
             "POST:api/indoor/anchor_entrance": self._api_indoor_anchor_entrance,
             "POST:api/indoor/mark_room_door": self._api_indoor_mark_room_door,
             "POST:api/indoor/mark_room_nav": self._api_indoor_mark_room_nav,
+            "POST:api/indoor/mark_elevator_door": self._api_indoor_mark_elevator_door,
+            "POST:api/indoor/mark_elevator_cabin": self._api_indoor_mark_elevator_cabin,
+            "POST:api/indoor/mark_stairs": self._api_indoor_mark_stairs,
             "POST:api/indoor/corridor_toggle": self._api_indoor_corridor_toggle,
             "POST:api/navigate": self._api_nav_unavailable,
             "POST:api/navigate/cancel": self._api_nav_unavailable,
             "POST:api/navigate/clear_blocked": lambda _: {"ok": True},
+            "POST:api/navigate/tuning": self._api_nav_tuning,
             "POST:api/relocalize": self._api_nav_unavailable,
         }
 
@@ -161,6 +176,20 @@ class StandaloneCampusMapper:
             "ok": False,
             "detail": "当前为独立建图模式（未启动 rbnx）；请启动室外 profile 后再发起机器人导航",
         }
+
+    def _api_nav_tuning(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            if "lookahead_m" in body and body["lookahead_m"] is not None:
+                self._nav_tuning["lookahead_m"] = max(3.0, min(25.0, float(body["lookahead_m"])))
+            if "advance_radius_m" in body and body["advance_radius_m"] is not None:
+                self._nav_tuning["advance_radius_m"] = max(1.0, min(12.0, float(body["advance_radius_m"])))
+            max_adv = max(1.0, round(self._nav_tuning["lookahead_m"] * 0.72, 2))
+            if self._nav_tuning["advance_radius_m"] > max_adv:
+                self._nav_tuning["advance_radius_m"] = max_adv
+            if "outdoor_corner_clamp" in body and body["outdoor_corner_clamp"] is not None:
+                self._nav_tuning["outdoor_corner_clamp"] = bool(body["outdoor_corner_clamp"])
+            out = dict(self._nav_tuning)
+        return {"ok": True, "nav_tuning": out, "detail": f"已设置室外前瞻 {out['lookahead_m']:.1f}m / 切点 {out['advance_radius_m']:.1f}m"}
 
     def _api_state(self, _: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
@@ -178,6 +207,8 @@ class StandaloneCampusMapper:
                 "active_indoor_map": active_fm.to_dict() if active_fm is not None else None,
                 "indoor_maps": self.indoor_store.list_summaries(),
                 "all_rooms": self.indoor_store.all_rooms(),
+                "all_elevators": self.indoor_store.all_elevators(),
+                "all_stairs": self.indoor_store.all_stairs(),
                 "robot": {
                     "has_pose": False,
                     "x": 0.0,
@@ -213,6 +244,7 @@ class StandaloneCampusMapper:
                     "blocked_edges": [],
                     "detail": "独立建图模式（无需启动 rbnx）",
                 },
+                "nav_tuning": dict(self._nav_tuning),
             }
 
     def _api_map_replace(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -312,6 +344,17 @@ class StandaloneCampusMapper:
                 return {"ok": False, "detail": "需要至少 3 个角点才能闭合建筑/地块"}
             self.campus_map.save(self.cfg.map_dir / self.active_file)
             return {"ok": True, "area": area}
+
+    def _api_survey_undo_draft_point(self, _: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            removed = self.recorder.undo_area_vertex()
+            if removed is None:
+                return {"ok": False, "detail": "当前没有待撤销的建筑角点"}
+            return {
+                "ok": True,
+                "removed": removed,
+                "remaining": len(self.recorder._area_draft),
+            }
 
     def _api_survey_drop_poi(self, body: dict[str, Any]) -> dict[str, Any]:
         name = str(body.get("name") or "").strip()
@@ -480,6 +523,74 @@ class StandaloneCampusMapper:
             )
             self.indoor_store.save(fm)
             return {"ok": True, "indoor_id": fm.indoor_id, **out, "indoor_recorder": self.indoor_recorder.state_dict()}
+
+    def _api_indoor_mark_elevator_door(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            xy = self._current_indoor_xy(body)
+            if xy is None:
+                return {"ok": False, "detail": "未检测到手持 indoor_mapper（室内建图仪）的玩家"}
+            fm = self._resolve_active_floor_map(
+                xy[0], xy[1],
+                building_id=str(body.get("building_id") or ""),
+                floor=str(body.get("floor") or ""),
+            )
+            door = self.indoor_recorder.mark_elevator_door(
+                fm,
+                xy[0],
+                xy[1],
+                name=str(body.get("elevator_name") or body.get("name") or ""),
+                elevator_id=str(body.get("elevator_id") or ""),
+            )
+            self.indoor_store.save(fm)
+            return {"ok": True, "indoor_id": fm.indoor_id, "door": door, "indoor_recorder": self.indoor_recorder.state_dict()}
+
+    def _api_indoor_mark_elevator_cabin(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            xy = self._current_indoor_xy(body)
+            if xy is None:
+                return {"ok": False, "detail": "未检测到手持 indoor_mapper（室内建图仪）的玩家"}
+            elev_y = body.get("up")
+            if elev_y is None and self._indoor_holders:
+                elev_y = (self._indoor_holders[0].get("pose") or {}).get("up")
+            fm = self._resolve_active_floor_map(
+                xy[0], xy[1], elev_y,
+                building_id=str(body.get("building_id") or ""),
+                floor=str(body.get("floor") or ""),
+            )
+            out = self.indoor_recorder.mark_elevator_cabin(
+                fm,
+                xy[0],
+                xy[1],
+                name=str(body.get("elevator_name") or body.get("name") or ""),
+                elevator_id=str(body.get("elevator_id") or ""),
+                floor_label=str(body.get("floor_label") or fm.floor),
+                elevation_y=float(elev_y) if elev_y is not None else None,
+            )
+            self.indoor_store.save(fm)
+            return {"ok": True, "indoor_id": fm.indoor_id, **out, "indoor_recorder": self.indoor_recorder.state_dict()}
+
+    def _api_indoor_mark_stairs(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            xy = self._current_indoor_xy(body)
+            if xy is None:
+                return {"ok": False, "detail": "未检测到手持 indoor_mapper（室内建图仪）的玩家"}
+            elev_y = body.get("up")
+            if elev_y is None and self._indoor_holders:
+                elev_y = (self._indoor_holders[0].get("pose") or {}).get("up")
+            fm = self._resolve_active_floor_map(
+                xy[0], xy[1], elev_y,
+                building_id=str(body.get("building_id") or ""),
+                floor=str(body.get("floor") or ""),
+            )
+            st = fm.upsert_stairs(
+                xy[0],
+                xy[1],
+                stairs_id=str(body.get("stairs_id") or "stairs_main"),
+                name=str(body.get("name") or "楼梯"),
+                elevation_y=float(elev_y) if elev_y is not None else None,
+            )
+            self.indoor_store.save(fm)
+            return {"ok": True, "indoor_id": fm.indoor_id, "stairs": st, "indoor_recorder": self.indoor_recorder.state_dict()}
 
     def _api_indoor_corridor_toggle(self, body: dict[str, Any]) -> dict[str, Any]:
         action = str(body.get("action") or "").strip().lower()
